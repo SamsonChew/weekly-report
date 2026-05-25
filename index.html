@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mlf-qyas-junjie · Week 1 周报</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --panel-bg: #ffffff;
+      --text: #1f2328;
+      --muted: #57606a;
+      --border: #d0d7de;
+      --link: #0969da;
+      --code-bg: #f6f8fa;
+      --tab-active: #0969da;
+      --tab-hover: #eaeef2;
+      --quote-border: #d0d7de;
+      --table-stripe: #f6f8fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* ── Top navigation ── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .topbar-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 7px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 6px;
+      color: var(--muted);
+      transition: all 0.15s ease;
+    }
+    .tab-btn:hover { background: var(--tab-hover); color: var(--text); }
+    .tab-btn.active {
+      background: var(--tab-active);
+      color: #fff;
+      border-color: var(--tab-active);
+    }
+
+    /* ── Report panels ── */
+    .report {
+      display: none;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 48px 80px;
+      background: var(--panel-bg);
+      min-height: calc(100vh - 57px);
+    }
+    .report.active { display: block; }
+
+    /* loading / error */
+    .loading {
+      text-align: center;
+      padding: 80px 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .loading-spinner {
+      display: inline-block;
+      width: 24px; height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--tab-active);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── GitHub-style markdown ── */
+    .markdown-body { color: var(--text); }
+
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3,
+    .markdown-body h4,
+    .markdown-body h5,
+    .markdown-body h6 { font-weight: 600; line-height: 1.25; }
+
+    .markdown-body h1 {
+      font-size: 2em;
+      margin: 0.67em 0 16px;
+      padding-bottom: 0.3em;
+      border-bottom: 1px solid var(--border);
+    }
+    .markdown-body h2 {
+      font-size: 1.5em;
+      margin: 40px 0 14px;
+      padding-bottom: 0.3em;
+      border-bottom: 1px solid var(--border);
+    }
+    .markdown-body h3 { font-size: 1.25em; margin: 28px 0 12px; }
+    .markdown-body h4 { font-size: 1em; margin: 22px 0 10px; }
+    .markdown-body h5 { font-size: 0.875em; margin: 18px 0 8px; color: var(--muted); }
+    .markdown-body h6 { font-size: 0.85em; margin: 16px 0 8px; color: var(--muted); }
+
+    .markdown-body p { margin: 0 0 16px; }
+
+    .markdown-body a { color: var(--link); text-decoration: none; }
+    .markdown-body a:hover { text-decoration: underline; }
+
+    .markdown-body strong { font-weight: 600; }
+    .markdown-body em { font-style: italic; }
+
+    .markdown-body ul,
+    .markdown-body ol {
+      padding-left: 2em;
+      margin: 0 0 16px;
+    }
+    .markdown-body li { margin: 4px 0; }
+    .markdown-body li > p { margin: 0; }
+    .markdown-body li + li { margin-top: 4px; }
+
+    .markdown-body blockquote {
+      margin: 0 0 16px;
+      padding: 0 1em;
+      color: var(--muted);
+      border-left: 4px solid var(--quote-border);
+    }
+    .markdown-body blockquote > :first-child { margin-top: 0; }
+    .markdown-body blockquote > :last-child { margin-bottom: 0; }
+
+    .markdown-body hr {
+      border: 0;
+      border-top: 1px solid var(--border);
+      margin: 24px 0;
+    }
+
+    .markdown-body img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 16px auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+
+    /* inline code */
+    .markdown-body code {
+      font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 85%;
+      padding: 0.2em 0.4em;
+      background: var(--code-bg);
+      border-radius: 6px;
+      border: 1px solid hsla(210,18%,87%,1);
+    }
+
+    /* code blocks */
+    .markdown-body pre {
+      margin: 0 0 16px;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 85%;
+      line-height: 1.45;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .markdown-body pre code {
+      font-size: 100%;
+      padding: 0;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      white-space: pre;
+    }
+
+    /* tables */
+    .markdown-body table {
+      border-collapse: collapse;
+      margin: 0 0 16px;
+      display: block;
+      width: max-content;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    .markdown-body table th,
+    .markdown-body table td {
+      border: 1px solid var(--border);
+      padding: 6px 13px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .markdown-body table th {
+      background: var(--code-bg);
+      font-weight: 600;
+    }
+    .markdown-body table tr:nth-child(2n) { background: var(--table-stripe); }
+
+    /* ── Responsive ── */
+    @media (max-width: 760px) {
+      .report { padding: 20px 16px 60px; }
+      .topbar { padding: 10px 14px; }
+      .tabs { width: 100%; margin-left: 0; }
+      .tab-btn { flex: 1; text-align: center; }
+      .markdown-body h1 { font-size: 1.5em; }
+      .markdown-body h2 { font-size: 1.25em; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="topbar">
+  <p class="topbar-title">mlf-qyas-junjie &middot; Week 1</p>
+  <div class="tabs">
+    <button class="tab-btn" data-target="deeplob" data-src="week1_report.md">DeepLOB Week 1</button>
+    <button class="tab-btn" data-target="quantalpha" data-src="week1_quantalpha.md">QuantaAlpha Week 1</button>
+  </div>
+</nav>
+
+<div class="report" id="deeplob">
+  <div class="loading"><span class="loading-spinner"></span>Loading…</div>
+</div>
+<div class="report" id="quantalpha">
+  <div class="loading"><span class="loading-spinner"></span>Loading…</div>
+</div>
+
+<script>
+(function () {
+  // Configure marked with GFM
+  marked.use({
+    gfm: true,
+    breaks: false
+  });
+
+  const cache = {};
+
+  async function loadMd(src) {
+    if (cache[src]) return cache[src];
+    const resp = await fetch(src);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + src);
+    const text = await resp.text();
+    cache[src] = marked.parse(text);
+    return cache[src];
+  }
+
+  const buttons = document.querySelectorAll('.tab-btn');
+  const panels  = document.querySelectorAll('.report');
+
+  async function activate(id) {
+    buttons.forEach(function(b) { b.classList.toggle('active', b.dataset.target === id); });
+    panels.forEach(function(p) { p.classList.toggle('active', p.id === id); });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (history.replaceState) history.replaceState(null, '', '#' + id);
+
+    var panel = document.getElementById(id);
+    var btn   = document.querySelector('.tab-btn[data-target="' + id + '"]');
+    if (!btn || panel.dataset.loaded) return;
+
+    try {
+      var html = await loadMd(btn.dataset.src);
+      panel.innerHTML = '<article class="markdown-body">' + html + '</article>';
+      panel.dataset.loaded = '1';
+      panel.querySelectorAll('pre code:not(.hljs)').forEach(function(el) {
+        hljs.highlightElement(el);
+      });
+    } catch (err) {
+      panel.innerHTML = '<div class="loading" style="color:#cf222e">' +
+        'Failed to load: ' + err.message + '<br>' +
+        '<small>If you\'re opening this as a local file (file://), ' +
+        'use a web server or GitHub Pages instead.</small></div>';
+    }
+  }
+
+  buttons.forEach(function(b) {
+    b.addEventListener('click', function() { activate(b.dataset.target); });
+  });
+
+  var hash   = location.hash.replace('#', '');
+  var initId = document.getElementById(hash) ? hash : buttons[0].dataset.target;
+  activate(initId);
+})();
+</script>
+</body>
+</html>
