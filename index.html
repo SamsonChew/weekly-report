@@ -8,501 +8,366 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
   <style>
-  /* ────────────────────────────────────────────────
-     Design tokens
-  ──────────────────────────────────────────────── */
+  /* ─── tokens ─── */
   :root {
-    --bg:           #f6f8fa;
-    --panel:        #ffffff;
-    --border:       #d0d7de;
-    --border-light: #eaeef2;
-    --text:         #1f2328;
-    --muted:        #57606a;
-    --subtle:       #6e7781;
-    --accent:       #0969da;
-    --accent-bg:    #ddf4ff;
-    --danger:       #cf222e;
-    --code-bg:      #f6f8fa;
-    --quote-bg:     #f6f8fa;
-    --tag-bg:       #eaeef2;
-    --topbar-h:     56px;
-    --toc-w:        230px;
-    --content-max:  760px;
+    --topbar-h: 54px;
+    --toc-w:    224px;
+
+    --white:    #ffffff;
+    --bg:       #ffffff;
+    --bg-soft:  #f9fafb;
+    --border:   #e5e7eb;
+    --border-s: #f0f1f3;
+
+    --text:     #111827;
+    --text-2:   #374151;
+    --muted:    #6b7280;
+    --subtle:   #9ca3af;
+
+    --accent:   #1d4ed8;
+    --accent-h: #1e40af;
+    --accent-b: #eff6ff;
+
+    --code-bg:  #f8fafc;
+    --code-bd:  #e8ecf0;
   }
 
-  /* ────────────────────────────────────────────────
-     Reset & base
-  ──────────────────────────────────────────────── */
+  /* ─── reset ─── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   html { scroll-behavior: smooth; }
-
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
                  "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    font-size: 15px;
-    line-height: 1.65;
+    font-size: 15.5px;
+    line-height: 1.72;
     background: var(--bg);
     color: var(--text);
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ────────────────────────────────────────────────
-     Topbar
-  ──────────────────────────────────────────────── */
+  /* ─────────────────────────── TOPBAR ─────────────────────────── */
   .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 200;
+    position: sticky; top: 0; z-index: 300;
     height: var(--topbar-h);
-    background: var(--panel);
+    background: var(--white);
     border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: stretch;
-    padding: 0 28px;
-    gap: 0;
-    box-shadow: 0 1px 0 var(--border);
+    display: flex; align-items: stretch;
+    padding: 0 32px;
   }
 
   .brand {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-    text-decoration: none;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13.5px; font-weight: 600; color: var(--text-2);
     padding-right: 28px;
-    border-right: 1px solid var(--border-light);
-    margin-right: 12px;
-    white-space: nowrap;
-    flex-shrink: 0;
+    border-right: 1px solid var(--border-s);
+    margin-right: 4px;
+    white-space: nowrap; flex-shrink: 0;
+    text-decoration: none;
   }
 
-  .brand-icon {
-    width: 22px; height: 22px;
-    background: linear-gradient(135deg, #0969da 0%, #218bff 100%);
-    border-radius: 6px;
+  .brand-dot {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--accent);
     display: flex; align-items: center; justify-content: center;
-    font-size: 11px; color: #fff; font-weight: 700; flex-shrink: 0;
+    font-size: 10.5px; font-weight: 700; color: #fff;
+    letter-spacing: -0.5px; flex-shrink: 0;
   }
 
-  .brand-sub {
-    font-weight: 400;
-    color: var(--muted);
-  }
+  .brand-muted { font-weight: 400; color: var(--muted); }
 
-  /* Underline tab style */
-  .tabs {
-    display: flex;
-    align-items: stretch;
-    gap: 0;
-    flex: 1;
-  }
+  /* underline tabs */
+  .tabs { display: flex; align-items: stretch; gap: 0; }
 
   .tab-btn {
     position: relative;
-    background: none;
-    border: none;
-    padding: 0 16px;
-    font-size: 14px;
-    font-weight: 500;
+    background: none; border: none;
+    padding: 0 18px;
+    font-size: 13.5px; font-weight: 500;
     color: var(--muted);
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    transition: color 0.15s;
+    display: flex; align-items: center; gap: 7px;
+    transition: color .15s;
     white-space: nowrap;
-    border-radius: 0;
   }
-
   .tab-btn::after {
     content: '';
-    position: absolute;
-    bottom: -1px; left: 8px; right: 8px;
-    height: 2px;
-    background: transparent;
-    border-radius: 2px 2px 0 0;
-    transition: background 0.15s;
+    position: absolute; bottom: 0; left: 12px; right: 12px;
+    height: 2px; border-radius: 2px 2px 0 0;
+    background: transparent; transition: background .15s;
   }
-
   .tab-btn:hover { color: var(--text); }
   .tab-btn:hover::after { background: var(--border); }
+  .tab-btn.active { color: var(--text); font-weight: 600; }
+  .tab-btn.active::after { background: var(--accent); }
 
-  .tab-btn.active { color: var(--text); }
-  .tab-btn.active::after { background: #fd8c73; }
-
-  .tab-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--tag-bg);
+  .tab-chip {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
     color: var(--muted);
-    font-size: 11px;
-    font-weight: 500;
-    padding: 1px 6px;
-    border-radius: 20px;
-    min-width: 20px;
+    font-size: 11px; font-weight: 500;
+    padding: 1px 7px; border-radius: 20px;
+  }
+  .tab-btn.active .tab-chip {
+    background: var(--accent-b);
+    border-color: #bfdbfe;
+    color: var(--accent);
   }
 
-  /* ────────────────────────────────────────────────
-     Page layout
-  ──────────────────────────────────────────────── */
-  .page-layout {
+  /* ─────────────────────────── LAYOUT ─────────────────────────── */
+  .page-wrap {
     display: flex;
-    max-width: calc(var(--content-max) + var(--toc-w) + 96px);
+    max-width: calc(760px + var(--toc-w) + 96px);
     margin: 0 auto;
     padding: 0 32px;
     align-items: flex-start;
   }
 
-  /* Content column */
   .content-col {
-    flex: 1;
-    min-width: 0;
-    border-right: 1px solid var(--border-light);
-    padding-right: 48px;
+    flex: 1; min-width: 0;
+    border-right: 1px solid var(--border-s);
+    padding-right: 52px;
   }
 
-  .report {
-    display: none;
-    padding: 36px 0 80px;
-  }
+  .report { display: none; padding: 40px 0 88px; }
   .report.active { display: block; }
 
-  /* Loading state */
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 80px 0;
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  .spinner {
-    width: 18px; height: 18px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.65s linear infinite;
-    flex-shrink: 0;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .err-msg { color: var(--danger); font-size: 14px; text-align: center; padding: 40px 0; }
-  .err-msg small { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; }
-
-  /* ────────────────────────────────────────────────
-     TOC sidebar
-  ──────────────────────────────────────────────── */
+  /* ─────────────────────────── TOC ─────────────────────────── */
   .toc-col {
     width: var(--toc-w);
     flex-shrink: 0;
     padding-left: 32px;
   }
 
-  .toc-sticky {
+  .toc-box {
     position: sticky;
     top: calc(var(--topbar-h) + 28px);
     max-height: calc(100vh - var(--topbar-h) - 56px);
-    overflow-y: auto;
-    overflow-x: hidden;
-    /* hide scrollbar but keep functionality */
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
   }
-  .toc-sticky::-webkit-scrollbar { width: 4px; }
-  .toc-sticky::-webkit-scrollbar-track { background: transparent; }
-  .toc-sticky::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .toc-box::-webkit-scrollbar { width: 3px; }
+  .toc-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-  .toc-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+  .toc-heading {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
     color: var(--subtle);
-    margin-bottom: 10px;
-    padding-left: 8px;
+    padding: 0 0 10px 0;
   }
 
-  .toc-list {
-    list-style: none;
-  }
+  .toc-list { list-style: none; }
 
   .toc-item a {
     display: block;
-    padding: 3px 8px;
-    font-size: 12.5px;
+    padding: 3.5px 8px;
+    font-size: 12.5px; line-height: 1.45;
     color: var(--muted);
     text-decoration: none;
-    border-left: 2px solid var(--border-light);
-    line-height: 1.45;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    border-left: 2px solid transparent;
     border-radius: 0 4px 4px 0;
+    transition: color .12s, border-color .12s, background .12s;
   }
-
-  .toc-item a:hover {
-    color: var(--text);
-    background: var(--bg);
-    border-left-color: var(--border);
-  }
-
-  /* depth levels */
-  .toc-item.d3 a { padding-left: 18px; font-size: 12px; }
-  .toc-item.d4 a { padding-left: 28px; font-size: 11.5px; color: var(--subtle); }
-
-  /* active state */
+  .toc-item a:hover { color: var(--text-2); border-left-color: var(--border); }
+  .toc-item.toc-h3 a { padding-left: 18px; font-size: 12px; }
+  .toc-item.toc-h4 a { padding-left: 28px; font-size: 11.5px; color: var(--subtle); }
   .toc-item.is-active > a {
-    color: var(--accent);
-    border-left-color: var(--accent);
-    font-weight: 500;
-    background: var(--accent-bg);
+    color: var(--accent); border-left-color: var(--accent);
+    background: var(--accent-b); font-weight: 500;
   }
+  .toc-empty { font-size: 12px; color: var(--subtle); padding-left: 8px; font-style: italic; }
 
-  /* empty / hidden TOC */
-  .toc-empty {
-    font-size: 12px;
-    color: var(--subtle);
-    padding-left: 8px;
-    font-style: italic;
+  /* ─────────────────────────── LOADING / ERR ─────────────────────────── */
+  .loading-wrap {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 80px 0; color: var(--muted); font-size: 14px;
   }
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .65s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ────────────────────────────────────────────────
-     Markdown body
-  ──────────────────────────────────────────────── */
-  .markdown-body {
+  .err-box { text-align: center; padding: 60px 24px; }
+  .err-box p { color: #dc2626; font-size: 14px; }
+  .err-box small { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; }
+
+  /* ─────────────────────────── MARKDOWN ─────────────────────────── */
+  .md {
     color: var(--text);
-    max-width: var(--content-max);
+    max-width: 760px;
   }
 
-  /* Headings */
-  .markdown-body h1,
-  .markdown-body h2,
-  .markdown-body h3,
-  .markdown-body h4,
-  .markdown-body h5 {
-    font-weight: 600;
-    line-height: 1.25;
-    scroll-margin-top: calc(var(--topbar-h) + 20px);
+  /* headings */
+  .md h1, .md h2, .md h3, .md h4, .md h5 {
+    font-weight: 700; line-height: 1.3;
+    scroll-margin-top: calc(var(--topbar-h) + 18px);
   }
-
-  .markdown-body h1 {
-    font-size: 1.85em;
-    margin: 0 0 20px;
-    padding-bottom: 12px;
+  .md h1 {
+    font-size: 1.75em; color: var(--text);
+    margin: 0 0 24px; padding-bottom: 14px;
+    border-bottom: 2px solid var(--border);
+  }
+  .md h2 {
+    font-size: 1.3em; color: var(--text);
+    margin: 48px 0 12px; padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
   }
-
-  .markdown-body h2 {
-    font-size: 1.35em;
-    margin: 44px 0 14px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  .markdown-body h3 {
-    font-size: 1.1em;
+  .md h3 {
+    font-size: 1.1em; color: var(--text);
     margin: 32px 0 10px;
-    color: var(--text);
   }
-
-  .markdown-body h4 {
-    font-size: 0.95em;
+  .md h4 {
+    font-size: 0.95em; font-weight: 600; color: var(--text-2);
     margin: 24px 0 8px;
-    color: var(--text);
+  }
+  .md h5 {
+    font-size: 0.875em; font-weight: 600; color: var(--muted);
+    margin: 18px 0 6px;
   }
 
-  .markdown-body h5 {
-    font-size: 0.875em;
-    margin: 20px 0 6px;
-    color: var(--muted);
-  }
+  /* body copy */
+  .md p     { margin: 0 0 14px; }
+  .md strong { font-weight: 700; color: var(--text); }
+  .md em    { font-style: italic; }           /* no color change - just italic */
+  .md del   { color: var(--subtle); }
+  .md a     { color: var(--accent); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
 
-  /* Paragraphs & inline */
-  .markdown-body p { margin: 0 0 16px; }
-  .markdown-body strong { font-weight: 600; color: var(--text); }
-  .markdown-body em { font-style: italic; color: var(--muted); }
-  .markdown-body del { color: var(--subtle); }
+  /* lists */
+  .md ul, .md ol { padding-left: 1.6em; margin: 0 0 14px; }
+  .md li { margin: 5px 0; }
+  .md li > p { margin: 0; }
 
-  /* Links */
-  .markdown-body a { color: var(--accent); text-decoration: none; }
-  .markdown-body a:hover { text-decoration: underline; }
-
-  /* Lists */
-  .markdown-body ul,
-  .markdown-body ol {
-    padding-left: 1.75em;
+  /* blockquote */
+  .md blockquote {
     margin: 0 0 16px;
-  }
-  .markdown-body li { margin: 5px 0; }
-  .markdown-body li > p { margin: 0; }
-  .markdown-body li + li { margin-top: 5px; }
-
-  /* Blockquotes */
-  .markdown-body blockquote {
-    margin: 0 0 16px;
-    padding: 10px 16px;
-    border-left: 4px solid var(--accent);
-    background: var(--accent-bg);
+    padding: 12px 16px;
+    border-left: 3px solid var(--border);
+    background: var(--bg-soft);
     border-radius: 0 6px 6px 0;
-    color: var(--muted);
+    color: var(--text-2);
   }
-  .markdown-body blockquote > :first-child { margin-top: 0; }
-  .markdown-body blockquote > :last-child  { margin-bottom: 0; }
+  .md blockquote > :first-child { margin-top: 0; }
+  .md blockquote > :last-child  { margin-bottom: 0; }
 
-  /* HR */
-  .markdown-body hr {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 28px 0;
-  }
+  /* hr */
+  .md hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
 
-  /* Images */
-  .markdown-body img {
-    max-width: 100%;
-    height: auto;
-    display: block;
-    margin: 20px auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
+  /* images */
+  .md img {
+    max-width: 100%; height: auto; display: block;
+    margin: 24px auto;
+    border: 1px solid var(--border); border-radius: 8px;
     background: #fff;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
   }
-
-  /* Inline code */
-  .markdown-body code {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-    font-size: 85%;
-    padding: 0.15em 0.4em;
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: #cf222e;
-  }
-
-  /* Code blocks */
-  .markdown-body pre {
-    margin: 0 0 20px;
-    padding: 0;
-    overflow: hidden;
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-
-  .markdown-body pre code {
+  /* figure caption = <em> immediately inside <p> that follows an <img> */
+  .md p:has(img) + p > em:only-child,
+  .md p > em:only-child {
     display: block;
-    padding: 16px 20px;
-    overflow-x: auto;
-    font-size: 13px;
-    line-height: 1.5;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    color: var(--text);
+    font-size: 13px; color: var(--muted);
+    text-align: center; margin-top: -16px; margin-bottom: 12px;
+    font-style: normal;
   }
 
-  /* Tables */
-  .markdown-body table {
-    border-collapse: collapse;
-    margin: 0 0 20px;
-    display: block;
-    width: max-content;
-    max-width: 100%;
-    overflow-x: auto;
-    border: 1px solid var(--border);
+  /* inline code — neutral, not red */
+  .md code {
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 84%;
+    padding: .15em .4em;
+    background: var(--code-bg);
+    border: 1px solid var(--code-bd);
+    border-radius: 5px;
+    color: var(--text-2);
+  }
+
+  /* code blocks */
+  .md pre {
+    margin: 0 0 18px;
+    background: var(--code-bg);
+    border: 1px solid var(--code-bd);
     border-radius: 8px;
     overflow: hidden;
   }
+  .md pre code {
+    display: block; padding: 16px 20px;
+    overflow-x: auto;
+    font-size: 13px; line-height: 1.55;
+    background: transparent; border: none;
+    border-radius: 0; color: var(--text);
+  }
 
-  .markdown-body table th,
-  .markdown-body table td {
-    border: none;
-    border-bottom: 1px solid var(--border);
-    border-right: 1px solid var(--border-light);
+  /* tables */
+  .md table {
+    border-collapse: collapse; width: 100%; margin: 0 0 18px;
+    display: block; overflow-x: auto;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .md table th, .md table td {
     padding: 8px 14px;
-    text-align: left;
-    vertical-align: top;
-    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border-s);
+    text-align: left; vertical-align: top; font-size: 13.5px;
   }
+  .md table th { background: var(--bg-soft); font-weight: 600; font-size: 13px; }
+  .md table tr:last-child td { border-bottom: none; }
+  .md table th:last-child, .md table td:last-child { border-right: none; }
+  .md table tbody tr:hover { background: var(--bg-soft); }
 
-  .markdown-body table th {
-    background: var(--code-bg);
-    font-weight: 600;
-    font-size: 13px;
-  }
-
-  .markdown-body table tr:last-child td { border-bottom: none; }
-  .markdown-body table th:last-child,
-  .markdown-body table td:last-child { border-right: none; }
-
-  .markdown-body table tbody tr:hover { background: var(--bg); }
-
-  /* ────────────────────────────────────────────────
-     Responsive — hide TOC on narrow screens
-  ──────────────────────────────────────────────── */
-  @media (max-width: 900px) {
+  /* ─────────────────────────── RESPONSIVE ─────────────────────────── */
+  @media (max-width: 960px) {
     .toc-col { display: none; }
     .content-col { border-right: none; padding-right: 0; }
-    .page-layout { padding: 0 20px; }
   }
-
-  @media (max-width: 600px) {
-    .page-layout { padding: 0 14px; }
-    .brand-sub { display: none; }
+  @media (max-width: 640px) {
+    .page-wrap { padding: 0 16px; }
+    .topbar { padding: 0 16px; }
+    .tab-btn { padding: 0 12px; font-size: 13px; }
+    .brand-muted { display: none; }
     .report { padding: 24px 0 60px; }
-    .markdown-body h1 { font-size: 1.4em; }
-    .markdown-body h2 { font-size: 1.15em; }
-    .topbar { padding: 0 14px; }
-    .tab-btn { padding: 0 10px; font-size: 13px; }
+    .md h1 { font-size: 1.4em; }
+    .md h2 { font-size: 1.15em; }
   }
   </style>
 </head>
 <body>
 
-<!-- ── Topbar ── -->
+<!-- topbar -->
 <header class="topbar">
   <span class="brand">
-    <span class="brand-icon">W1</span>
+    <span class="brand-dot">W1</span>
     mlf-qyas-junjie
-    <span class="brand-sub">· Week 1</span>
+    <span class="brand-muted">· Weekly Report</span>
   </span>
   <nav class="tabs">
-    <button class="tab-btn" data-target="deeplob" data-src="week1_report.md">
+    <button class="tab-btn" data-id="deeplob" data-src="week1_report.md">
       DeepLOB
-      <span class="tab-badge">Week 1</span>
+      <span class="tab-chip">Week 1</span>
     </button>
-    <button class="tab-btn" data-target="quantalpha" data-src="week1_quantalpha.md">
+    <button class="tab-btn" data-id="quantalpha" data-src="week1_quantalpha.md">
       QuantaAlpha
-      <span class="tab-badge">Week 1</span>
+      <span class="tab-chip">Week 1</span>
     </button>
   </nav>
 </header>
 
-<!-- ── Page body ── -->
-<div class="page-layout">
+<!-- page body -->
+<div class="page-wrap">
 
-  <!-- Content column -->
   <div class="content-col">
     <div class="report" id="deeplob">
-      <div class="loading"><div class="spinner"></div>Loading…</div>
+      <div class="loading-wrap"><div class="spinner"></div>Loading…</div>
     </div>
     <div class="report" id="quantalpha">
-      <div class="loading"><div class="spinner"></div>Loading…</div>
+      <div class="loading-wrap"><div class="spinner"></div>Loading…</div>
     </div>
   </div>
 
-  <!-- TOC sidebar -->
-  <aside class="toc-col" aria-label="On this page">
-    <div class="toc-sticky">
-      <p class="toc-label">On this page</p>
-      <div id="toc-content">
-        <p class="toc-empty">Loading…</p>
-      </div>
+  <aside class="toc-col">
+    <div class="toc-box">
+      <p class="toc-heading">On this page</p>
+      <div id="toc-root"><p class="toc-empty">—</p></div>
     </div>
   </aside>
 
@@ -512,175 +377,142 @@
 (function () {
   'use strict';
 
-  marked.use({ gfm: true, breaks: false });
+  /* marked: gfm + breaks so trailing "  " becomes <br> */
+  marked.use({ gfm: true, breaks: true });
 
-  /* ── helpers ── */
-  function slugify(text) {
-    return text
-      .toLowerCase()
-      .replace(/[一-鿿]/g, function(c) { return c; }) // keep CJK
+  /* ── slugify (keep CJK) ── */
+  function slug(text) {
+    var s = text.toLowerCase()
       .replace(/[^\w一-鿿\s-]/g, '')
-      .replace(/\s+/g, '-')
+      .replace(/[\s]+/g, '-')
       .replace(/-{2,}/g, '-')
       .replace(/^-|-$/g, '');
+    return s || 'section';
   }
 
-  /* ── TOC builder ── */
+  /* ── fetch + parse ── */
+  var cache = {};
+  async function getMd(src) {
+    if (cache[src]) return cache[src];
+    var r = await fetch(src);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var html = marked.parse(await r.text());
+    cache[src] = html;
+    return html;
+  }
+
+  /* ── TOC ── */
+  var tocCleanup = null;
+
   function buildToc(articleEl) {
-    var tocEl = document.getElementById('toc-content');
-    var headings = Array.from(articleEl.querySelectorAll('h2, h3, h4'));
+    if (tocCleanup) { tocCleanup(); tocCleanup = null; }
+    var root = document.getElementById('toc-root');
+    var hs = Array.from(articleEl.querySelectorAll('h2,h3,h4'));
+    if (!hs.length) { root.innerHTML = '<p class="toc-empty">—</p>'; return; }
 
-    if (headings.length === 0) {
-      tocEl.innerHTML = '<p class="toc-empty">No sections</p>';
-      return;
-    }
-
-    // Assign IDs
+    /* assign IDs */
     var seen = {};
-    headings.forEach(function(h) {
-      var base = slugify(h.textContent.trim()) || 'section';
+    hs.forEach(function (h) {
+      var base = slug(h.textContent.trim());
       seen[base] = (seen[base] || 0) + 1;
       h.id = seen[base] > 1 ? base + '-' + seen[base] : base;
     });
 
-    // Build list
-    var items = headings.map(function(h) {
-      var level = parseInt(h.tagName[1], 10);
-      var depthClass = level === 3 ? ' d3' : level === 4 ? ' d4' : '';
-      return '<li class="toc-item' + depthClass + '" data-id="' + h.id + '">' +
-             '<a href="#' + h.id + '">' + h.textContent.trim() + '</a></li>';
+    /* build list */
+    var html = '<ul class="toc-list">';
+    hs.forEach(function (h) {
+      var lv = h.tagName[1];
+      var cls = 'toc-item toc-h' + lv;
+      html += '<li class="' + cls + '" data-id="' + h.id + '">' +
+              '<a href="#' + h.id + '">' + h.textContent.trim() + '</a></li>';
     });
+    html += '</ul>';
+    root.innerHTML = html;
 
-    tocEl.innerHTML = '<ul class="toc-list">' + items.join('') + '</ul>';
-    setupActiveTracking(articleEl, tocEl);
-  }
-
-  /* ── Active section tracking ── */
-  function setupActiveTracking(articleEl, tocEl) {
-    var headings = Array.from(articleEl.querySelectorAll('h2, h3, h4'));
-    var tocItems = Array.from(tocEl.querySelectorAll('.toc-item'));
+    /* active tracking */
+    var items = Array.from(root.querySelectorAll('.toc-item'));
+    var topH  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 54;
     var rafId = null;
-    var topbarH = parseInt(getComputedStyle(document.documentElement)
-                            .getPropertyValue('--topbar-h'), 10) || 56;
 
     function update() {
-      var scrollY = window.scrollY;
-      var viewTop = scrollY + topbarH + 20;
-
-      // Find the last heading above viewTop
-      var activeId = null;
-      for (var i = 0; i < headings.length; i++) {
-        if (headings[i].offsetTop <= viewTop) {
-          activeId = headings[i].id;
-        } else {
-          break;
-        }
-      }
-
-      tocItems.forEach(function(item) {
-        var isActive = item.dataset.id === activeId;
-        if (isActive && !item.classList.contains('is-active')) {
-          tocItems.forEach(function(t) { t.classList.remove('is-active'); });
-          item.classList.add('is-active');
-          // scroll toc to keep active item visible
-          var tocSticky = document.querySelector('.toc-sticky');
-          if (tocSticky) {
-            var itemTop = item.offsetTop - tocSticky.offsetTop;
-            var visible = tocSticky.scrollTop;
-            var height  = tocSticky.clientHeight;
-            if (itemTop < visible || itemTop > visible + height - 40) {
-              tocSticky.scrollTop = itemTop - height / 2;
-            }
+      var y = window.scrollY + topH + 24;
+      var active = null;
+      hs.forEach(function (h) { if (h.offsetTop <= y) active = h.id; });
+      items.forEach(function (it) {
+        var on = it.dataset.id === active;
+        if (on === it.classList.contains('is-active')) return;
+        it.classList.toggle('is-active', on);
+        if (on) {
+          /* keep active item visible in toc */
+          var box = document.querySelector('.toc-box');
+          if (box) {
+            var rel = it.offsetTop - box.offsetTop;
+            var h   = box.clientHeight;
+            if (rel < box.scrollTop || rel > box.scrollTop + h - 40)
+              box.scrollTop = rel - h / 2;
           }
-        } else if (!isActive) {
-          item.classList.remove('is-active');
         }
       });
     }
 
-    window.addEventListener('scroll', function() {
+    var onScroll = function () {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(update);
-    }, { passive: true });
-
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
     update();
+    tocCleanup = function () { window.removeEventListener('scroll', onScroll); };
 
-    // TOC click: smooth scroll
-    tocEl.addEventListener('click', function(e) {
+    /* toc click */
+    root.addEventListener('click', function (e) {
       var a = e.target.closest('a');
       if (!a) return;
       e.preventDefault();
       var target = document.getElementById(a.getAttribute('href').slice(1));
       if (target) {
-        var y = target.getBoundingClientRect().top + window.scrollY - topbarH - 16;
-        window.scrollTo({ top: y, behavior: 'smooth' });
+        window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - topH - 12, behavior: 'smooth' });
         if (history.replaceState) history.replaceState(null, '', a.getAttribute('href'));
       }
     });
   }
 
-  /* ── Markdown loader ── */
-  var cache = {};
-
-  async function loadMd(src) {
-    if (cache[src]) return cache[src];
-    var resp = await fetch(src);
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    var text = await resp.text();
-    cache[src] = marked.parse(text);
-    return cache[src];
-  }
-
-  /* ── Tab switching ── */
-  var buttons = document.querySelectorAll('.tab-btn');
-  var panels  = document.querySelectorAll('.report');
+  /* ── tabs ── */
+  var btns   = document.querySelectorAll('.tab-btn');
+  var panels = document.querySelectorAll('.report');
 
   async function activate(id) {
-    buttons.forEach(function(b) { b.classList.toggle('active', b.dataset.target === id); });
-    panels.forEach(function(p) { p.classList.toggle('active', p.id === id); });
+    btns.forEach(function (b) { b.classList.toggle('active', b.dataset.id === id); });
+    panels.forEach(function (p) { p.classList.toggle('active', p.id === id); });
     window.scrollTo({ top: 0, behavior: 'instant' });
     if (history.replaceState) history.replaceState(null, '', '#' + id);
 
     var panel = document.getElementById(id);
-    var btn   = document.querySelector('.tab-btn[data-target="' + id + '"]');
+    var btn   = document.querySelector('.tab-btn[data-id="' + id + '"]');
     if (!btn) return;
 
-    // Already rendered
     if (panel.dataset.loaded) {
-      var article = panel.querySelector('.markdown-body');
-      if (article) buildToc(article);
+      buildToc(panel.querySelector('.md'));
       return;
     }
 
     try {
-      var html = await loadMd(btn.dataset.src);
-      panel.innerHTML = '<article class="markdown-body">' + html + '</article>';
+      var html = await getMd(btn.dataset.src);
+      panel.innerHTML = '<article class="md">' + html + '</article>';
       panel.dataset.loaded = '1';
-
-      // Syntax highlight
-      panel.querySelectorAll('pre code').forEach(function(el) {
-        hljs.highlightElement(el);
-      });
-
-      // Build TOC
-      buildToc(panel.querySelector('.markdown-body'));
-
+      panel.querySelectorAll('pre code').forEach(function (el) { hljs.highlightElement(el); });
+      buildToc(panel.querySelector('.md'));
     } catch (err) {
-      panel.innerHTML = '<div class="err-msg">Failed to load report: ' + err.message +
-        '<small>This page needs to be served over HTTP (GitHub Pages, local server).<br>' +
+      panel.innerHTML = '<div class="err-box"><p>Failed to load: ' + err.message + '</p>' +
+        '<small>This page must be served over HTTP (GitHub Pages / local server).<br>' +
         'It cannot be opened as a <code>file://</code> URL.</small></div>';
-      document.getElementById('toc-content').innerHTML =
-        '<p class="toc-empty">—</p>';
+      document.getElementById('toc-root').innerHTML = '<p class="toc-empty">—</p>';
     }
   }
 
-  buttons.forEach(function(b) {
-    b.addEventListener('click', function() { activate(b.dataset.target); });
-  });
+  btns.forEach(function (b) { b.addEventListener('click', function () { activate(b.dataset.id); }); });
 
-  var hash   = location.hash.replace('#', '');
-  var initId = document.getElementById(hash) ? hash : buttons[0].dataset.target;
-  activate(initId);
+  var hash = location.hash.replace('#', '');
+  activate(document.getElementById(hash) ? hash : btns[0].dataset.id);
 })();
 </script>
 </body>
