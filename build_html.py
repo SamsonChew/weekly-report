@@ -33,6 +33,12 @@ REPORTS = [
         "subtitle": "SOL 回测落地 / 复现 / 开发 Pipeline 总纲",
         "file": HERE / "hfcrypto_result.md",
     },
+    {
+        "id": "bestresult",
+        "title": "S&P 500 最优结果",
+        "subtitle": "LambdaRank + i2i + Crash Filter · Sharpe 1.311 · $10k→$250k",
+        "file": HERE / "best_result.md",
+    },
 ]
 
 MD_EXTS = [
