@@ -155,8 +155,8 @@ LGBM_BoosterPredictForMatSingleRowFast(lgbm_fast_handler, values_.data(), &len, 
 - **核心评估指标 `edge0.5%` = `mean(sign(α)·y_TRUE)` 在 |α| 排名 top 0.5% 子集上**(单位 bp)。即"我最有把握的那 0.5% 信号,平均每单位能抓到多少 bp 的真实方向收益"。
 
 ### 3.2 SOL 真实分布(为什么盯尾部)
-| 分位 | 阈值 |y| | mean|y| | +side | −side |
-|---|---|---|---|---|---|
+| 分位 | 阈值 \|y\| | mean \|y\| | +side | −side |
+|---|---|---|---|---|
 | top 1% | 4.78 bp | 6.92 | +5.68 | −5.73 |
 | top 0.5% | 5.97 bp | 8.31 | +6.85 | −6.98 |
 | top 0.1% | 9.44 bp | 12.52 | +10.25 | −10.80 |
@@ -173,6 +173,7 @@ LGBM_BoosterPredictForMatSingleRowFast(lgbm_fast_handler, values_.data(), &len, 
 6. **集成**（3 个）：avg_rank、avg_z、meta_lgbm
 
 **Baseline 递进**
+
 | 模型 | edge0.5% |
 |---|---|
 | lgbm_reg（默认回归） | **+1.147**（最差，印证"reg 在 SOL 不行"） |
@@ -184,6 +185,7 @@ LGBM_BoosterPredictForMatSingleRowFast(lgbm_fast_handler, values_.data(), &len, 
 把 top0.5% edge 从 **1.30 → 1.75 bp（+35%）**，整体 IC 几乎不变（−0.018）。
 
 **完整 Leaderboard Top 10**
+
 | Rank | 模型 ID | Decode | edge0.5% | IC0.5% | OvIC | edge0.1% | sign_acc | 说明 |
 |---|---|---|---|---|---|---|---|---|
 | 1 | ENS_AVG_Z | N/A | **+1.751** | +0.590 | — | — | — | top-N z-score 集成 |
@@ -200,6 +202,7 @@ LGBM_BoosterPredictForMatSingleRowFast(lgbm_fast_handler, values_.data(), &len, 
 > 共同规律：全是 d9/d11 + n500；一半用 tw/twq；全部 center decode。集成增益有限（1.719→1.751，仅 +0.032），根因：top15 模型互相关 = **0.966**，多样性极低。
 
 **ENS_AVG_Z 完整分位分布（OOS 259k 样本）**
+
 | topX% | n | IC | edge(bp) | mean\|y\|(bp) | sign_acc |
 |---|---|---|---|---|---|
 | 50% | 129,599 | +0.338 | +0.445 | 0.798 | 33.0% |
@@ -346,15 +349,15 @@ hf_crypto/sol_alpha/
 - **edge0.5% = 1.703,仅比最强单模 clf7(1.697)+0.006**(0528 是 +0.032)—— 我们增益更小,因为 4 个成员(clf3/5/7/reg,全在同 115 因子+同目标)比 0528 的 15 个 clf7 变种更同质。
 - **结论(复现 0528)**:**同质模型集成几乎没用**,集成要有意义必须用**低相关异质成员** → 直接论证 Phase 2 该做不同 loss/objective/horizon 的多样化模型,而非堆同family模型。
 
-![四模型 leaderboard](../../../mlf-qyas-junjie/hf_crypto/sol_alpha/output/fig_leaderboard.png)
+![四模型 leaderboard](figs/hfcrypto_leaderboard.png)
 *图 0(5 模型,含 ENS_AVG_Z):左=edge_q99 条形(叠 BTC/ETH 1.35bp 目标线);右=oracle 重叠率 top1%/top0.5%(叠 0528 病根 0.014 参照线)。reg/clf7 尾部命中最高,clf3 垫底,集成≈clf7 不拉开。*
 
 ### 3.9.2 各模型信号面板（每张 4 子图:① edge vs gate ② IC_tail ③ alpha–y 散点 ④ oracle capture）
 
 代表两档:**clf7**（单模最强,edge0.5%=1.697）、**reg**（oracle 重叠最高,Layer-2 首选）;clf5/clf3 图见 `output/<model>/`。
 
-![clf7 signal](../../../mlf-qyas-junjie/hf_crypto/sol_alpha/output/baseline_clf7_d11_n500/fig_signal_baseline_clf7_d11_n500.png)
-![reg signal](../../../mlf-qyas-junjie/hf_crypto/sol_alpha/output/reg_d11_n500/fig_signal_reg_d11_n500.png)
+![clf7 + reg signal panels](figs/hfcrypto_signal_panels.png)
+*上:clf7_d11_n500 信号面板;下:reg_d11_n500 信号面板。*
 
 > 怎么看:**①** edge_bp 随 gate 收紧单调上升(叠成本线+目标线,看尾部能否过线);**②** 尾部 IC;**③** alpha–真实 y 散点(尾部高亮);**④** model vs oracle 的 |y| capture(差距越小越能挑中大波动)。图源 `fig_signal_<model>.png`,`eval_report.py` 一键产出。
 
@@ -381,7 +384,7 @@ hf_crypto/sol_alpha/
 > **5 模型(含集成)形态完全一致**:top10%/5% 全亏(成本吃光),收紧到 top0.5% 亏损收窄但量小(432 笔/天)。**全部 gate net 都 <0 —— 这就是要超越的基线。**
 > **ENS_AVG_Z 并不比最强单模好**:top0.5% −$2.8 vs clf7 −$2.9(改善 ~$0.05/day 可忽略)→ **PnL 层确认 §3.9.1 的结论:同质集成(成员相关 0.962)无用,集成要有效必须造低相关异质成员(Phase 2)。**
 
-![python sim 全模型](../../../mlf-qyas-junjie/hf_crypto/sol_alpha/output/fig_python_sim.png)
+![python sim 全模型](figs/hfcrypto_python_sim.png)
 *图:左=net edge_bp vs gate(>0 才扣费后赚,全模型在所有 gate 都 <0);右=PnL/day vs gate。*
 
 **✅ python sim 也数值复现 0528**(报告 p10 HFTaking python sim):
@@ -509,6 +512,7 @@ PnL 有**两种算法**,0528/0525 报告本来就两套都给,我们一一对应
 | 4 — 上实盘前 | C++ vs python decode 数值对齐；费率/tick 核对；多日稳定性 |
 
 **KPI（超越 0528 的判定标准）**
+
 | 维度 | 0528 现状 | 目标 |
 |---|---|---|
 | edge0.5%（gross） | +1.75 bp | ≥ 1.9 bp（OOS/5月不掉） |
@@ -531,6 +535,7 @@ micromamba activate hfcrypto
 ```
 
 env 内容(已验证):
+
 | 组件 | 版本 | 用途 |
 |------|------|------|
 | **conan** | **1.61.0** | C++ 依赖管理(已配好私有仓+只读账号+profile) |
