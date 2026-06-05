@@ -286,18 +286,157 @@ def build_page() -> str:
     js = """
       const buttons = document.querySelectorAll('.tab-btn');
       const reports = document.querySelectorAll('.report');
+
       function activate(id) {
         buttons.forEach(b => b.classList.toggle('active', b.dataset.target === id));
         reports.forEach(r => r.classList.toggle('active', r.id === id));
         window.scrollTo({ top: 0, behavior: 'instant' });
-        if (history.replaceState) {
-          history.replaceState(null, '', '#' + id);
-        }
+        if (history.replaceState) history.replaceState(null, '', '#' + id);
       }
       buttons.forEach(b => b.addEventListener('click', () => activate(b.dataset.target)));
-      // Initial: respect URL hash, else first tab
       const initial = (location.hash || '').replace('#', '') || buttons[0].dataset.target;
       activate(document.getElementById(initial) ? initial : buttons[0].dataset.target);
+
+      // ── Section keyboard navigation ──────────────────────────────────
+      const TOPBAR_H = 64;
+
+      function activeHeadings() {
+        const panel = document.querySelector('.report.active');
+        if (!panel) return [];
+        return Array.from(panel.querySelectorAll('h1, h2, h3'));
+      }
+
+      function currentHeadingIdx(headings) {
+        const mid = window.scrollY + TOPBAR_H + 4;
+        let idx = -1;
+        for (let i = 0; i < headings.length; i++) {
+          if (headings[i].getBoundingClientRect().top + window.scrollY <= mid) idx = i;
+          else break;
+        }
+        return idx;
+      }
+
+      function jumpToHeading(h) {
+        const top = h.getBoundingClientRect().top + window.scrollY - TOPBAR_H - 8;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        showToast(h.textContent.trim());
+      }
+
+      // Toast
+      const toast = document.createElement('div');
+      toast.id = 'kbd-toast';
+      Object.assign(toast.style, {
+        position:'fixed', bottom:'28px', left:'50%', transform:'translateX(-50%) translateY(12px)',
+        background:'rgba(31,35,40,0.88)', color:'#fff', padding:'8px 18px',
+        borderRadius:'8px', fontSize:'13px', fontFamily:'inherit',
+        pointerEvents:'none', opacity:'0', transition:'opacity .18s, transform .18s',
+        maxWidth:'70vw', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+        zIndex:'999'
+      });
+      document.body.appendChild(toast);
+      let toastTimer;
+      function showToast(msg) {
+        clearTimeout(toastTimer);
+        toast.textContent = msg;
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+        toastTimer = setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateX(-50%) translateY(12px)';
+        }, 1800);
+      }
+
+      // Help overlay
+      const helpOverlay = document.createElement('div');
+      helpOverlay.id = 'kbd-help';
+      helpOverlay.innerHTML = `
+        <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:380px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.18);">
+          <div style="font-weight:700;font-size:16px;margin-bottom:16px;color:#1f2328">⌨️ 键盘快捷键</div>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a">]</td><td>下一个标题</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a">[</td><td>上一个标题</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a">1 – ${buttons.length}</td><td>切换到对应 Tab</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a">g g</td><td>回到顶部</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a">G</td><td>跳到底部</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a">?</td><td>显示 / 关闭此面板</td></tr>
+          </table>
+          <div style="margin-top:18px;text-align:right">
+            <button onclick="document.getElementById('kbd-help').style.display='none'"
+              style="border:1px solid #d0d7de;background:#f6f8fa;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px">关闭</button>
+          </div>
+        </div>`;
+      Object.assign(helpOverlay.style, {
+        display:'none', position:'fixed', inset:'0',
+        background:'rgba(0,0,0,.35)', zIndex:'1000',
+        alignItems:'center', justifyContent:'center'
+      });
+      helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) helpOverlay.style.display='none'; });
+      document.body.appendChild(helpOverlay);
+
+      // Key handler
+      let lastKey = '', lastKeyTime = 0;
+      document.addEventListener('keydown', e => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+        const key = e.key;
+
+        // Tab switching: 1-9
+        if (/^[1-9]$/.test(key) && !e.metaKey && !e.ctrlKey) {
+          const idx = parseInt(key) - 1;
+          if (idx < buttons.length) { e.preventDefault(); buttons[idx].click(); return; }
+        }
+
+        // ] next heading
+        if (key === ']') {
+          e.preventDefault();
+          const hs = activeHeadings();
+          if (!hs.length) return;
+          const cur = currentHeadingIdx(hs);
+          const next = hs[Math.min(cur + 1, hs.length - 1)];
+          jumpToHeading(next);
+          return;
+        }
+
+        // [ prev heading
+        if (key === '[') {
+          e.preventDefault();
+          const hs = activeHeadings();
+          if (!hs.length) return;
+          const cur = currentHeadingIdx(hs);
+          const prev = hs[Math.max(cur - 1, 0)];
+          jumpToHeading(prev);
+          return;
+        }
+
+        // g g → top
+        const now = Date.now();
+        if (key === 'g' && !e.shiftKey) {
+          if (lastKey === 'g' && now - lastKeyTime < 500) {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            showToast('⬆ 回到顶部');
+          }
+          lastKey = 'g'; lastKeyTime = now;
+          return;
+        }
+
+        // G → bottom
+        if (key === 'G') {
+          e.preventDefault();
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+          showToast('⬇ 跳到底部');
+          return;
+        }
+
+        // ? → help
+        if (key === '?') {
+          e.preventDefault();
+          const h = helpOverlay;
+          h.style.display = h.style.display === 'none' ? 'flex' : 'none';
+          return;
+        }
+
+        lastKey = key; lastKeyTime = now;
+      });
     """
 
     return f"""<!DOCTYPE html>
