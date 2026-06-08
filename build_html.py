@@ -34,6 +34,18 @@ REPORTS = [
         "file": HERE / "hfcrypto_result.md",
     },
     {
+        "id": "hfcrypto-baseline",
+        "title": "SOL 基线复现",
+        "subtitle": "115 因子 · 71 天 OOS · 信号+PnL 双层评估完整体系",
+        "file": HERE / "hfcrypto_result_baseline_summary.md",
+    },
+    {
+        "id": "hfcrypto-experiment",
+        "title": "SOL 实验记录",
+        "subtitle": "组合模型实验 · 病根验证 · 改 loss 迭代",
+        "file": HERE / "hfcrypto_experiment.md",
+    },
+    {
         "id": "bestresult",
         "title": "S&P 500 最优结果",
         "subtitle": "LambdaRank + i2i + Crash Filter · Sharpe 1.311 · $10k→$250k",
