@@ -28,6 +28,12 @@ REPORTS = [
         "file": HERE / "week1_quantalpha.md",
     },
     {
+        "id": "quantalpha-w23",
+        "title": "QuantaAlpha Week 2,3",
+        "subtitle": "AI自动调参Loop / LOB高频OOS / 外部alpha验证 / Qwen3-32B 4并发",
+        "file": HERE / "cryptoalpha_week23.md",
+    },
+    {
         "id": "hfcrypto",
         "title": "HF Crypto — SOL",
         "subtitle": "SOL 回测落地 / 复现 / 开发 Pipeline 总纲",
