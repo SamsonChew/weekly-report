@@ -40,6 +40,12 @@ REPORTS = [
         "file": HERE / "hfcrypto_result.md",
     },
     {
+        "id": "alphabank-w23",
+        "title": "AlphaBank Week 23",
+        "subtitle": "BTC 1s HFT · Return口径/Bar因子/IC Sweep/Return结构分析",
+        "file": HERE / "alphabank_week23.md",
+    },
+    {
         "id": "hfcrypto-baseline",
         "title": "SOL 基线复现",
         "subtitle": "115 因子 · 71 天 OOS · 信号+PnL 双层评估完整体系",
