@@ -63,6 +63,12 @@ REPORTS = [
         "subtitle": "LambdaRank + i2i + Crash Filter · Sharpe 1.311 · $10k→$250k",
         "file": HERE / "best_result.md",
     },
+    {
+        "id": "model-summary-w23",
+        "title": "DeepLOB Week 23 模型",
+        "subtitle": "新数据接入范式 + Regime-Adaptive 动态形态 · bar/FiLM/Hypernet γ_t",
+        "file": HERE / "model_summary_week23.md",
+    },
 ]
 
 MD_EXTS = [
