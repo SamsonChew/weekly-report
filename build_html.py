@@ -9,6 +9,23 @@ import markdown
 
 HERE = Path(__file__).parent
 
+HOME_LINKS = [
+    {"title": "Samson Week 2 & 3 Summary",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/GeUswyjYLiqgEYkMZK1jiktfpQb?from=from_copylink"},
+    {"title": "Samson Week 4 Summary",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/K2nswkremi8VcskqmddjwOcFpGc?from=from_copylink"},
+    {"title": "Samson 模型思考",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/U5cXw5fQPi4mJikkyc3jPHYSp49?from=from_copylink"},
+    {"title": "Crypto 高频 Milestone",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/FpgswPrwiiAqY8krF1ljaOhApqf?from=from_copylink"},
+    {"title": "AutoResearch + Brainstorm",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/ZCs7wmAAKi8JHKkPbeJjgHzwpUf?from=from_copylink"},
+    {"title": "Q2 Model Research Summary",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/DC8iwVLHuiJWfBk9q3cjt1khp5c?from=from_copylink"},
+    {"title": "Q1 Model Research Summary",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/WQCDwjxJ1ibyCgkMcBvjlcfQpPc?from=from_copylink"},
+]
+
 GROUPS = [
     {"id": "hfcrypto-sol", "label": "HF Crypto · SOL",   "color": "#0550ae"},
     {"id": "deeplob",      "label": "DeepLOB / S&P 500", "color": "#6e40c9"},
@@ -22,7 +39,7 @@ REPORTS = [
     {
         "id": "hfcrypto",
         "group": "hfcrypto-sol",
-        "title": "SOL 总纲",
+        "title": "design review",
         "subtitle": "SOL 回测落地 / 复现 / 开发 Pipeline 总纲",
         "file": HERE / "hfcrypto_result.md",
     },
@@ -167,8 +184,26 @@ def build_page() -> str:
         if gid in reports_by_group:
             reports_by_group[gid].append(r)
 
+    # ── Home panel ────────────────────────────────────────────────────
+    home_cards = "\n".join(
+        f'      <a href="{l["url"]}" target="_blank" rel="noopener" class="home-card">'
+        f'<span class="home-card-num">{i}</span>'
+        f'<span class="home-card-title">{html_lib.escape(l["title"])}</span>'
+        f'<span class="home-card-arrow">↗</span></a>'
+        for i, l in enumerate(HOME_LINKS, 1)
+    )
+    home_panel = f'''  <section class="report" id="home">
+    <header class="report-header">
+      <h1 style="margin-top:0">文档索引</h1>
+      <p class="subtitle">Lark 文档快速入口</p>
+    </header>
+    <div class="home-links">
+{home_cards}
+    </div>
+  </section>'''
+
     # ── Sidebar ────────────────────────────────────────────────────────
-    sidebar_parts = []
+    sidebar_parts = ['    <button class="nav-item nav-home" data-target="home">首页</button>\n    <div class="nav-divider"></div>']
     for g in GROUPS:
         items = reports_by_group[g["id"]]
         if not items:
@@ -186,7 +221,7 @@ def build_page() -> str:
     sidebar_html = "\n".join(sidebar_parts)
 
     # ── Panels ────────────────────────────────────────────────────────
-    panels = "\n".join(
+    report_panels = "\n".join(
         f'''  <section class="report" id="{r["id"]}">
     <header class="report-header">
       <div class="report-group-tag" style="color:{group_map[r["group"]]["color"]}">{html_lib.escape(group_map[r["group"]]["label"])}</div>
@@ -199,6 +234,7 @@ def build_page() -> str:
   </section>'''
         for r in rendered
     )
+    panels = home_panel + "\n" + report_panels
 
     css = """
       :root {
@@ -310,6 +346,46 @@ def build_page() -> str:
         color: var(--gc, #0969da);
         font-weight: 600;
       }
+      .nav-home {
+        margin: 8px 8px 0;
+        width: calc(100% - 16px);
+        border-radius: 6px;
+        border-left: none !important;
+        font-weight: 600;
+        font-size: 13.5px;
+        padding: 7px 12px;
+        background: var(--hover-bg);
+        color: var(--text);
+      }
+      .nav-home:hover { background: #dde3ea; }
+      .nav-home.active { background: #1f2328 !important; color: #fff !important; }
+      .nav-divider { height: 1px; background: var(--border); margin: 10px 0 2px; }
+
+      /* ── Home page ── */
+      .home-links { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+      .home-card {
+        display: flex; align-items: center; gap: 14px;
+        padding: 14px 18px;
+        border: 1px solid var(--border); border-radius: 8px;
+        text-decoration: none; color: var(--text);
+        background: var(--panel-bg);
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.1s;
+      }
+      .home-card:hover {
+        border-color: #0969da;
+        box-shadow: 0 2px 10px rgba(9,105,218,0.10);
+        text-decoration: none;
+        background: #f0f6ff;
+      }
+      .home-card-num {
+        width: 24px; height: 24px; border-radius: 50%;
+        background: var(--border); color: var(--muted);
+        font-size: 12px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+      }
+      .home-card-title { flex: 1; font-weight: 500; font-size: 15px; }
+      .home-card-arrow { color: var(--muted); font-size: 16px; flex-shrink: 0; }
 
       /* ── Main area ── */
       .main-area {

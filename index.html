@@ -114,6 +114,46 @@
         color: var(--gc, #0969da);
         font-weight: 600;
       }
+      .nav-home {
+        margin: 8px 8px 0;
+        width: calc(100% - 16px);
+        border-radius: 6px;
+        border-left: none !important;
+        font-weight: 600;
+        font-size: 13.5px;
+        padding: 7px 12px;
+        background: var(--hover-bg);
+        color: var(--text);
+      }
+      .nav-home:hover { background: #dde3ea; }
+      .nav-home.active { background: #1f2328 !important; color: #fff !important; }
+      .nav-divider { height: 1px; background: var(--border); margin: 10px 0 2px; }
+
+      /* ── Home page ── */
+      .home-links { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+      .home-card {
+        display: flex; align-items: center; gap: 14px;
+        padding: 14px 18px;
+        border: 1px solid var(--border); border-radius: 8px;
+        text-decoration: none; color: var(--text);
+        background: var(--panel-bg);
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.1s;
+      }
+      .home-card:hover {
+        border-color: #0969da;
+        box-shadow: 0 2px 10px rgba(9,105,218,0.10);
+        text-decoration: none;
+        background: #f0f6ff;
+      }
+      .home-card-num {
+        width: 24px; height: 24px; border-radius: 50%;
+        background: var(--border); color: var(--muted);
+        font-size: 12px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+      }
+      .home-card-title { flex: 1; font-weight: 500; font-size: 15px; }
+      .home-card-arrow { color: var(--muted); font-size: 16px; flex-shrink: 0; }
 
       /* ── Main area ── */
       .main-area {
@@ -226,9 +266,11 @@
   </header>
   <div class="layout">
     <nav class="sidebar">
+    <button class="nav-item nav-home" data-target="home">首页</button>
+    <div class="nav-divider"></div>
     <div class="nav-group" style="--gc:#0550ae">
       <div class="nav-group-label">HF Crypto · SOL</div>
-      <button class="nav-item" data-target="hfcrypto">SOL 总纲</button>
+      <button class="nav-item" data-target="hfcrypto">design review</button>
       <button class="nav-item" data-target="hfcrypto-baseline">基线复现</button>
       <button class="nav-item" data-target="hfcrypto-experiment">实验记录</button>
       <button class="nav-item" data-target="hfcrypto-w4">Week 4</button>
@@ -256,10 +298,25 @@
     </div>
     </nav>
     <main class="main-area">
+  <section class="report" id="home">
+    <header class="report-header">
+      <h1 style="margin-top:0">文档索引</h1>
+      <p class="subtitle">Lark 文档快速入口</p>
+    </header>
+    <div class="home-links">
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/GeUswyjYLiqgEYkMZK1jiktfpQb?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">1</span><span class="home-card-title">Samson Week 2 &amp; 3 Summary</span><span class="home-card-arrow">↗</span></a>
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/K2nswkremi8VcskqmddjwOcFpGc?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">2</span><span class="home-card-title">Samson Week 4 Summary</span><span class="home-card-arrow">↗</span></a>
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/U5cXw5fQPi4mJikkyc3jPHYSp49?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">3</span><span class="home-card-title">Samson 模型思考</span><span class="home-card-arrow">↗</span></a>
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/FpgswPrwiiAqY8krF1ljaOhApqf?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">4</span><span class="home-card-title">Crypto 高频 Milestone</span><span class="home-card-arrow">↗</span></a>
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/ZCs7wmAAKi8JHKkPbeJjgHzwpUf?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">5</span><span class="home-card-title">AutoResearch + Brainstorm</span><span class="home-card-arrow">↗</span></a>
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/DC8iwVLHuiJWfBk9q3cjt1khp5c?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">6</span><span class="home-card-title">Q2 Model Research Summary</span><span class="home-card-arrow">↗</span></a>
+      <a href="https://njp9rhghllrb.jp.larksuite.com/wiki/WQCDwjxJ1ibyCgkMcBvjlcfQpPc?from=from_copylink" target="_blank" rel="noopener" class="home-card"><span class="home-card-num">7</span><span class="home-card-title">Q1 Model Research Summary</span><span class="home-card-arrow">↗</span></a>
+    </div>
+  </section>
   <section class="report" id="hfcrypto">
     <header class="report-header">
       <div class="report-group-tag" style="color:#0550ae">HF Crypto · SOL</div>
-      <h1>SOL 总纲</h1>
+      <h1>design review</h1>
       <p class="subtitle">SOL 回测落地 / 复现 / 开发 Pipeline 总纲</p>
     </header>
     <article class="markdown-body">
