@@ -653,6 +653,13 @@ def build_page() -> str:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>junjie · 周报</title>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-F7G43560QC"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){{dataLayer.push(arguments);}}
+    gtag('js', new Date());
+    gtag('config', 'G-F7G43560QC');
+  </script>
   <style>{css}</style>
 </head>
 <body>
