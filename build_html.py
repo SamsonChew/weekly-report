@@ -14,6 +14,7 @@ GROUPS = [
     {"id": "deeplob",      "label": "DeepLOB / S&P 500", "color": "#6e40c9"},
     {"id": "quantaalpha",  "label": "QuantaAlpha",         "color": "#b5690e"},
     {"id": "alphabank",    "label": "AlphaBank",           "color": "#116329"},
+    {"id": "futures",      "label": "期货",                 "color": "#9a3412"},
 ]
 
 REPORTS = [
@@ -104,6 +105,14 @@ REPORTS = [
         "title": "Week 23",
         "subtitle": "BTC 1s HFT · Return口径/Bar因子/IC Sweep/Return结构分析",
         "file": HERE / "alphabank_week23.md",
+    },
+    # ── 期货 ──────────────────────────────────────────────────────────
+    {
+        "id": "futures-code",
+        "group": "futures",
+        "title": "design review",
+        "subtitle": "cafe_syin + fut2cafe 因子迁移工程全记录",
+        "file": HERE / "futures_code.md",
     },
 ]
 
