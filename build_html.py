@@ -1,9 +1,4 @@
-"""Build a single-file HTML viewer with tab switcher for the two week-1 reports.
-
-Output: /home/samson/mlf-qyas-junjie/weekly_report/index.html
-
-Run with: /home/samson/.local/share/mamba/envs/mlf-qyas/bin/python3 build_html.py
-"""
+"""Build a single-file HTML viewer with grouped sidebar navigation for weekly reports."""
 from pathlib import Path
 import base64
 import html as html_lib
@@ -14,66 +9,87 @@ import markdown
 
 HERE = Path(__file__).parent
 
+GROUPS = [
+    {"id": "hfcrypto-sol", "label": "HF Crypto · SOL",   "color": "#0550ae"},
+    {"id": "deeplob",      "label": "DeepLOB / S&P 500", "color": "#6e40c9"},
+    {"id": "quantaalpha",  "label": "QuantaAlpha",         "color": "#b5690e"},
+    {"id": "alphabank",    "label": "AlphaBank",           "color": "#116329"},
+]
+
 REPORTS = [
-    {
-        "id": "deeplob",
-        "title": "DeepLOB Week 1",
-        "subtitle": "四条路径并行 → Bagging 融合 → 精度/召回双轴框架",
-        "file": HERE / "week1_report.md",
-    },
-    {
-        "id": "quantalpha",
-        "title": "QuantaAlpha Week 1",
-        "subtitle": "从 0 到「可演示」: 内网 LLM × 自动因子挖掘系统",
-        "file": HERE / "week1_quantalpha.md",
-    },
-    {
-        "id": "quantalpha-w23",
-        "title": "QuantaAlpha Week 2,3",
-        "subtitle": "AI自动调参Loop / LOB高频OOS / 外部alpha验证 / Qwen3-32B 4并发",
-        "file": HERE / "cryptoalpha_week23.md",
-    },
+    # ── HF Crypto SOL ─────────────────────────────────────────────────
     {
         "id": "hfcrypto",
-        "title": "HF Crypto — SOL",
+        "group": "hfcrypto-sol",
+        "title": "SOL 总纲",
         "subtitle": "SOL 回测落地 / 复现 / 开发 Pipeline 总纲",
         "file": HERE / "hfcrypto_result.md",
     },
     {
-        "id": "alphabank-w23",
-        "title": "AlphaBank Week 23",
-        "subtitle": "BTC 1s HFT · Return口径/Bar因子/IC Sweep/Return结构分析",
-        "file": HERE / "alphabank_week23.md",
-    },
-    {
         "id": "hfcrypto-baseline",
-        "title": "SOL 基线复现",
+        "group": "hfcrypto-sol",
+        "title": "基线复现",
         "subtitle": "115 因子 · 71 天 OOS · 信号+PnL 双层评估完整体系",
         "file": HERE / "hfcrypto_result_baseline_summary.md",
     },
     {
         "id": "hfcrypto-experiment",
-        "title": "SOL 实验记录",
+        "group": "hfcrypto-sol",
+        "title": "实验记录",
         "subtitle": "组合模型实验 · 病根验证 · 改 loss 迭代",
         "file": HERE / "hfcrypto_experiment.md",
     },
     {
-        "id": "bestresult",
-        "title": "S&P 500 最优结果",
-        "subtitle": "LambdaRank + i2i + Crash Filter · Sharpe 1.311 · $10k→$250k",
-        "file": HERE / "best_result.md",
+        "id": "hfcrypto-w4",
+        "group": "hfcrypto-sol",
+        "title": "Week 4",
+        "subtitle": "信号→C++→因子修复→run_sim 四阶段 · 单120MLP · 缺口在穿价",
+        "file": HERE / "hfcrypto_week4.md",
+    },
+    # ── DeepLOB / S&P 500 ─────────────────────────────────────────────
+    {
+        "id": "deeplob",
+        "group": "deeplob",
+        "title": "Week 1",
+        "subtitle": "四条路径并行 → Bagging 融合 → 精度/召回双轴框架",
+        "file": HERE / "week1_report.md",
     },
     {
         "id": "model-summary-w23",
-        "title": "DeepLOB Week 23 模型",
+        "group": "deeplob",
+        "title": "Week 23 模型",
         "subtitle": "新数据接入范式 + Regime-Adaptive 动态形态 · bar/FiLM/Hypernet γ_t",
         "file": HERE / "model_summary_week23.md",
     },
     {
-        "id": "hfcrypto-w4",
-        "title": "HF Crypto SOL - W4",
-        "subtitle": "信号→C++→因子修复→run_sim 四阶段 · 单120MLP · 缺口在穿价",
-        "file": HERE / "hfcrypto_week4.md",
+        "id": "bestresult",
+        "group": "deeplob",
+        "title": "S&P 500 最优结果",
+        "subtitle": "LambdaRank + i2i + Crash Filter · Sharpe 1.311 · $10k→$250k",
+        "file": HERE / "best_result.md",
+    },
+    # ── QuantaAlpha ───────────────────────────────────────────────────
+    {
+        "id": "quantalpha",
+        "group": "quantaalpha",
+        "title": "Week 1",
+        "subtitle": "从 0 到「可演示」: 内网 LLM × 自动因子挖掘系统",
+        "file": HERE / "week1_quantalpha.md",
+    },
+    {
+        "id": "quantalpha-w23",
+        "group": "quantaalpha",
+        "title": "Week 2,3",
+        "subtitle": "AI自动调参Loop / LOB高频OOS / 外部alpha验证 / Qwen3-32B 4并发",
+        "file": HERE / "cryptoalpha_week23.md",
+    },
+    # ── AlphaBank ─────────────────────────────────────────────────────
+    {
+        "id": "alphabank-w23",
+        "group": "alphabank",
+        "title": "Week 23",
+        "subtitle": "BTC 1s HFT · Return口径/Bar因子/IC Sweep/Return结构分析",
+        "file": HERE / "alphabank_week23.md",
     },
 ]
 
@@ -86,7 +102,6 @@ MD_EXTS = [
     "md_in_html",
     "sane_lists",
 ]
-
 
 _IMG_TAG_RE = re.compile(r'<img\b([^>]*?)\bsrc="([^"]+)"([^>]*)>')
 
@@ -122,14 +137,36 @@ def build_page() -> str:
         body_html = render_md(r["file"])
         rendered.append({**r, "body": body_html})
 
-    nav_buttons = "\n".join(
-        f'      <button class="tab-btn" data-target="{r["id"]}">{html_lib.escape(r["title"])}</button>'
-        for r in rendered
-    )
+    group_map = {g["id"]: g for g in GROUPS}
+    reports_by_group = {g["id"]: [] for g in GROUPS}
+    for r in rendered:
+        gid = r.get("group", "")
+        if gid in reports_by_group:
+            reports_by_group[gid].append(r)
 
+    # ── Sidebar ────────────────────────────────────────────────────────
+    sidebar_parts = []
+    for g in GROUPS:
+        items = reports_by_group[g["id"]]
+        if not items:
+            continue
+        items_html = "\n".join(
+            f'      <button class="nav-item" data-target="{r["id"]}">{html_lib.escape(r["title"])}</button>'
+            for r in items
+        )
+        sidebar_parts.append(
+            f'    <div class="nav-group" style="--gc:{g["color"]}">\n'
+            f'      <div class="nav-group-label">{html_lib.escape(g["label"])}</div>\n'
+            f'{items_html}\n'
+            f'    </div>'
+        )
+    sidebar_html = "\n".join(sidebar_parts)
+
+    # ── Panels ────────────────────────────────────────────────────────
     panels = "\n".join(
         f'''  <section class="report" id="{r["id"]}">
     <header class="report-header">
+      <div class="report-group-tag" style="color:{group_map[r["group"]]["color"]}">{html_lib.escape(group_map[r["group"]]["label"])}</div>
       <h1>{html_lib.escape(r["title"])}</h1>
       <p class="subtitle">{html_lib.escape(r["subtitle"])}</p>
     </header>
@@ -142,21 +179,21 @@ def build_page() -> str:
 
     css = """
       :root {
-        --bg: #fafafa;
+        --bg: #f6f8fa;
+        --sidebar-bg: #f6f8fa;
         --panel-bg: #ffffff;
         --text: #1f2328;
         --muted: #57606a;
         --border: #d0d7de;
         --link: #0969da;
         --code-bg: #f6f8fa;
-        --tab-active: #0969da;
-        --tab-hover: #eaeef2;
-        --quote-border: #d0d7de;
-        --table-stripe: #f6f8fa;
+        --hover-bg: #eaeef2;
+        --topbar-h: 52px;
+        --sidebar-w: 210px;
       }
-      * { box-sizing: border-box; }
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { height: 100%; overflow: hidden; margin: 0; padding: 0; }
       body {
-        margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
                      "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
         font-size: 15px;
@@ -164,201 +201,252 @@ def build_page() -> str:
         background: var(--bg);
         color: var(--text);
       }
+
+      /* ── Topbar ── */
       .topbar {
-        position: sticky;
-        top: 0;
-        z-index: 10;
+        height: var(--topbar-h);
         background: var(--panel-bg);
         border-bottom: 1px solid var(--border);
-        padding: 12px 24px;
+        padding: 0 20px;
         display: flex;
         align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
+        gap: 10px;
+        position: relative;
+        z-index: 10;
       }
-      .topbar h2 {
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--muted);
+      .topbar-logo {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text);
+        letter-spacing: -0.01em;
       }
-      .tabs {
-        display: flex;
-        gap: 4px;
+      .topbar-logo span { color: var(--muted); font-weight: 400; }
+      .topbar-hint {
         margin-left: auto;
-      }
-      .tab-btn {
-        background: transparent;
-        border: 1px solid var(--border);
-        padding: 8px 16px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        border-radius: 6px;
+        font-size: 12px;
         color: var(--muted);
-        transition: all 0.15s ease;
+        cursor: pointer;
+        padding: 3px 10px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--bg);
+        user-select: none;
+        transition: background 0.1s;
       }
-      .tab-btn:hover { background: var(--tab-hover); color: var(--text); }
-      .tab-btn.active {
-        background: var(--tab-active);
-        color: white;
-        border-color: var(--tab-active);
+      .topbar-hint:hover { background: var(--hover-bg); color: var(--text); }
+
+      /* ── Layout ── */
+      .layout {
+        display: flex;
+        height: calc(100vh - var(--topbar-h));
+        overflow: hidden;
+      }
+
+      /* ── Sidebar ── */
+      .sidebar {
+        width: var(--sidebar-w);
+        flex-shrink: 0;
+        background: var(--sidebar-bg);
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+        padding: 10px 0 32px;
+      }
+      .nav-group { margin-bottom: 4px; }
+      .nav-group-label {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        padding: 14px 14px 5px;
+        color: var(--gc, var(--muted));
+        opacity: 0.75;
+      }
+      .nav-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: none;
+        border-left: 3px solid transparent;
+        padding: 6px 14px 6px 11px;
+        font-size: 13.5px;
+        font-weight: 500;
+        color: #444c56;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: background 0.1s, color 0.1s, border-color 0.1s;
+        line-height: 1.4;
+        font-family: inherit;
+      }
+      .nav-item:hover { background: var(--hover-bg); color: var(--text); }
+      .nav-item.active {
+        border-left-color: var(--gc, #0969da);
+        background: rgba(0,0,0,0.04);
+        color: var(--gc, #0969da);
+        font-weight: 600;
+      }
+
+      /* ── Main area ── */
+      .main-area {
+        flex: 1;
+        overflow-y: auto;
+        background: var(--bg);
       }
       .report {
         display: none;
-        max-width: 980px;
+        max-width: 900px;
         margin: 0 auto;
-        padding: 32px 48px 80px;
+        padding: 36px 52px 100px;
         background: var(--panel-bg);
-        min-height: calc(100vh - 60px);
+        min-height: 100%;
       }
       .report.active { display: block; }
+
+      .report-group-tag {
+        font-size: 11.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+        opacity: 0.8;
+      }
       .report-header {
         border-bottom: 2px solid var(--border);
-        padding-bottom: 16px;
+        padding-bottom: 18px;
         margin-bottom: 32px;
       }
-      .report-header h1 { margin: 0 0 6px; font-size: 28px; }
-      .report-header .subtitle { margin: 0; color: var(--muted); font-size: 15px; }
+      .report-header h1 { margin: 4px 0 6px; font-size: 26px; }
+      .report-header .subtitle { margin: 0; color: var(--muted); font-size: 14.5px; }
 
+      /* ── Markdown body ── */
       .markdown-body h1 {
-        font-size: 26px;
-        margin-top: 48px;
-        margin-bottom: 16px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid var(--border);
+        font-size: 24px; margin-top: 48px; margin-bottom: 14px;
+        padding-bottom: 8px; border-bottom: 1px solid var(--border);
       }
       .markdown-body h2 {
-        font-size: 22px;
-        margin-top: 36px;
-        margin-bottom: 14px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid var(--border);
+        font-size: 20px; margin-top: 36px; margin-bottom: 12px;
+        padding-bottom: 6px; border-bottom: 1px solid var(--border);
       }
-      .markdown-body h3 { font-size: 18px; margin-top: 28px; margin-bottom: 12px; }
-      .markdown-body h4 { font-size: 16px; margin-top: 22px; margin-bottom: 10px; color: #24292f; }
-      .markdown-body h5 { font-size: 14px; margin-top: 18px; margin-bottom: 8px; color: #57606a; }
+      .markdown-body h3 { font-size: 17px; margin-top: 28px; margin-bottom: 10px; }
+      .markdown-body h4 { font-size: 15px; margin-top: 22px; margin-bottom: 8px; color: #24292f; }
+      .markdown-body h5 { font-size: 13.5px; margin-top: 18px; margin-bottom: 6px; color: var(--muted); }
       .markdown-body p { margin: 0 0 14px; }
       .markdown-body a { color: var(--link); text-decoration: none; }
       .markdown-body a:hover { text-decoration: underline; }
       .markdown-body img {
-        max-width: 100%;
-        height: auto;
-        display: block;
-        margin: 16px auto;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        background: #fff;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        max-width: 100%; height: auto; display: block; margin: 16px auto;
+        border: 1px solid var(--border); border-radius: 6px;
+        background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
       }
       .markdown-body code {
         font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
-        background: var(--code-bg);
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 0.88em;
+        background: var(--code-bg); padding: 2px 6px; border-radius: 4px; font-size: 0.87em;
       }
       .markdown-body pre {
-        background: var(--code-bg);
-        padding: 14px 18px;
-        border-radius: 6px;
-        overflow-x: auto;
-        font-size: 13px;
-        line-height: 1.55;
-        border: 1px solid var(--border);
+        background: var(--code-bg); padding: 14px 18px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; line-height: 1.55; border: 1px solid var(--border);
       }
-      .markdown-body pre code {
-        background: transparent;
-        padding: 0;
-        border-radius: 0;
-        font-size: 13px;
-      }
+      .markdown-body pre code { background: transparent; padding: 0; border-radius: 0; font-size: 13px; }
       .markdown-body blockquote {
-        margin: 0 0 16px;
-        padding: 8px 18px;
-        color: var(--muted);
-        border-left: 4px solid var(--quote-border);
-        background: #f6f8fa;
-        border-radius: 0 4px 4px 0;
+        margin: 0 0 16px; padding: 8px 18px; color: var(--muted);
+        border-left: 4px solid var(--border); background: #f6f8fa; border-radius: 0 4px 4px 0;
       }
       .markdown-body blockquote p { margin: 6px 0; }
       .markdown-body ul, .markdown-body ol { padding-left: 28px; margin: 0 0 14px; }
       .markdown-body li { margin: 4px 0; }
       .markdown-body table {
-        border-collapse: collapse;
-        margin: 16px 0;
-        font-size: 13.5px;
-        display: block;
-        overflow-x: auto;
-        max-width: 100%;
+        border-collapse: collapse; margin: 16px 0; font-size: 13.5px;
+        display: block; overflow-x: auto; max-width: 100%;
       }
       .markdown-body table th, .markdown-body table td {
-        border: 1px solid var(--border);
-        padding: 8px 12px;
-        text-align: left;
-        vertical-align: top;
+        border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top;
       }
-      .markdown-body table th {
-        background: var(--code-bg);
-        font-weight: 600;
-      }
-      .markdown-body table tr:nth-child(even) td { background: var(--table-stripe); }
-      .markdown-body hr {
-        border: none;
-        border-top: 1px solid var(--border);
-        margin: 28px 0;
-      }
+      .markdown-body table th { background: var(--code-bg); font-weight: 600; }
+      .markdown-body table tr:nth-child(even) td { background: #f6f8fa; }
+      .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
       .markdown-body em { color: #57606a; }
       .markdown-body strong { color: #1f2328; }
 
-      @media (max-width: 760px) {
-        .report { padding: 24px 18px 60px; }
-        .topbar { padding: 10px 14px; }
-        .tabs { width: 100%; margin-left: 0; }
-        .tab-btn { flex: 1; }
+      /* ── Mobile ── */
+      @media (max-width: 700px) {
+        html, body { height: auto; overflow: auto; }
+        .layout { flex-direction: column; height: auto; overflow: visible; }
+        .sidebar {
+          width: 100%; border-right: none; border-bottom: 1px solid var(--border);
+          padding: 8px; display: flex; flex-wrap: wrap; gap: 4px; overflow: visible;
+        }
+        .nav-group { display: contents; }
+        .nav-group-label { display: none; }
+        .nav-item {
+          border-left: none; border-bottom: 2px solid transparent;
+          padding: 5px 10px; border-radius: 5px; white-space: nowrap; flex-shrink: 0;
+        }
+        .nav-item.active {
+          border-left: none; border-bottom-color: var(--gc, #0969da);
+          background: rgba(0,0,0,0.04);
+        }
+        .main-area { overflow: visible; height: auto; }
+        .report { padding: 24px 18px 60px; min-height: auto; }
       }
     """
 
-    js = """
-      const buttons = document.querySelectorAll('.tab-btn');
-      const reports = document.querySelectorAll('.report');
+    js = r"""
+      const navItems = Array.from(document.querySelectorAll('.nav-item'));
+      const reports  = document.querySelectorAll('.report');
+      const mainArea = document.querySelector('.main-area');
+
+      function scrollMainTo(px, behavior) {
+        if (getComputedStyle(mainArea).overflowY !== 'visible') {
+          mainArea.scrollTo({ top: px, behavior: behavior || 'smooth' });
+        } else {
+          window.scrollTo({ top: px, behavior: behavior || 'smooth' });
+        }
+      }
 
       function activate(id) {
-        buttons.forEach(b => b.classList.toggle('active', b.dataset.target === id));
+        navItems.forEach(b => b.classList.toggle('active', b.dataset.target === id));
         reports.forEach(r => r.classList.toggle('active', r.id === id));
-        window.scrollTo({ top: 0, behavior: 'instant' });
+        scrollMainTo(0, 'instant');
         if (history.replaceState) history.replaceState(null, '', '#' + id);
       }
-      buttons.forEach(b => b.addEventListener('click', () => activate(b.dataset.target)));
-      const initial = (location.hash || '').replace('#', '') || buttons[0].dataset.target;
-      activate(document.getElementById(initial) ? initial : buttons[0].dataset.target);
 
-      // ── Section keyboard navigation ──────────────────────────────────
-      const TOPBAR_H = 64;
+      navItems.forEach(b => b.addEventListener('click', () => activate(b.dataset.target)));
+      const initial = (location.hash || '').replace('#', '') || navItems[0].dataset.target;
+      activate(document.getElementById(initial) ? initial : navItems[0].dataset.target);
 
+      // ── Section heading navigation ────────────────────────────────
       function activeHeadings() {
         const panel = document.querySelector('.report.active');
-        if (!panel) return [];
-        return Array.from(panel.querySelectorAll('h1, h2, h3'));
+        return panel ? Array.from(panel.querySelectorAll('h1, h2, h3')) : [];
+      }
+
+      function getScrollTop() {
+        return getComputedStyle(mainArea).overflowY !== 'visible' ? mainArea.scrollTop : window.scrollY;
       }
 
       function currentHeadingIdx(headings) {
-        const mid = window.scrollY + TOPBAR_H + 4;
+        const areaTop = mainArea.getBoundingClientRect().top;
+        const scrollTop = getScrollTop();
         let idx = -1;
         for (let i = 0; i < headings.length; i++) {
-          if (headings[i].getBoundingClientRect().top + window.scrollY <= mid) idx = i;
+          const relTop = headings[i].getBoundingClientRect().top - areaTop + scrollTop;
+          if (relTop <= scrollTop + 4) idx = i;
           else break;
         }
         return idx;
       }
 
       function jumpToHeading(h) {
-        const top = h.getBoundingClientRect().top + window.scrollY - TOPBAR_H - 8;
-        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        const areaTop = mainArea.getBoundingClientRect().top;
+        const scrollTop = getScrollTop();
+        const relTop = h.getBoundingClientRect().top - areaTop + scrollTop;
+        scrollMainTo(Math.max(0, relTop - 8));
         showToast(h.textContent.trim());
       }
 
-      // Toast
+      // ── Toast ──────────────────────────────────────────────────────
       const toast = document.createElement('div');
       toast.id = 'kbd-toast';
       Object.assign(toast.style, {
@@ -366,8 +454,7 @@ def build_page() -> str:
         background:'rgba(31,35,40,0.88)', color:'#fff', padding:'8px 18px',
         borderRadius:'8px', fontSize:'13px', fontFamily:'inherit',
         pointerEvents:'none', opacity:'0', transition:'opacity .18s, transform .18s',
-        maxWidth:'70vw', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
-        zIndex:'999'
+        maxWidth:'70vw', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', zIndex:'999'
       });
       document.body.appendChild(toast);
       let toastTimer;
@@ -382,19 +469,19 @@ def build_page() -> str:
         }, 1800);
       }
 
-      // Help overlay
+      // ── Help overlay ───────────────────────────────────────────────
       const helpOverlay = document.createElement('div');
       helpOverlay.id = 'kbd-help';
       helpOverlay.innerHTML = `
         <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:380px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.18);">
           <div style="font-weight:700;font-size:16px;margin-bottom:16px;color:#1f2328">⌨️ 键盘快捷键</div>
           <table style="width:100%;border-collapse:collapse;font-size:14px;">
-            <tr><td style="padding:6px 12px 6px 0;color:#57606a">]</td><td>下一个标题</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#57606a">[</td><td>上一个标题</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#57606a">1 – ${buttons.length}</td><td>切换到对应 Tab</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#57606a">g g</td><td>回到顶部</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#57606a">G</td><td>跳到底部</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#57606a">?</td><td>显示 / 关闭此面板</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a;font-family:monospace">]</td><td>下一个标题</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a;font-family:monospace">[</td><td>上一个标题</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a;font-family:monospace">1 – 9</td><td>切换到第 N 篇报告</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a;font-family:monospace">g g</td><td>回到顶部</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a;font-family:monospace">G</td><td>跳到底部</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#57606a;font-family:monospace">?</td><td>显示 / 关闭此面板</td></tr>
           </table>
           <div style="margin-top:18px;text-align:right">
             <button onclick="document.getElementById('kbd-help').style.display='none'"
@@ -403,67 +490,53 @@ def build_page() -> str:
         </div>`;
       Object.assign(helpOverlay.style, {
         display:'none', position:'fixed', inset:'0',
-        background:'rgba(0,0,0,.35)', zIndex:'1000',
-        alignItems:'center', justifyContent:'center'
+        background:'rgba(0,0,0,.35)', zIndex:'1000', alignItems:'center', justifyContent:'center'
       });
       helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) helpOverlay.style.display='none'; });
       document.body.appendChild(helpOverlay);
 
-      // Key handler
+      // ── Key handler ────────────────────────────────────────────────
       let lastKey = '', lastKeyTime = 0;
       document.addEventListener('keydown', e => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
         const key = e.key;
 
-        // Tab switching: 1-9
         if (/^[1-9]$/.test(key) && !e.metaKey && !e.ctrlKey) {
           const idx = parseInt(key) - 1;
-          if (idx < buttons.length) { e.preventDefault(); buttons[idx].click(); return; }
+          if (idx < navItems.length) { e.preventDefault(); activate(navItems[idx].dataset.target); return; }
         }
 
-        // ] next heading
         if (key === ']') {
           e.preventDefault();
-          const hs = activeHeadings();
-          if (!hs.length) return;
-          const cur = currentHeadingIdx(hs);
-          const next = hs[Math.min(cur + 1, hs.length - 1)];
-          jumpToHeading(next);
+          const hs = activeHeadings(); if (!hs.length) return;
+          jumpToHeading(hs[Math.min(currentHeadingIdx(hs) + 1, hs.length - 1)]);
           return;
         }
 
-        // [ prev heading
         if (key === '[') {
           e.preventDefault();
-          const hs = activeHeadings();
-          if (!hs.length) return;
-          const cur = currentHeadingIdx(hs);
-          const prev = hs[Math.max(cur - 1, 0)];
-          jumpToHeading(prev);
+          const hs = activeHeadings(); if (!hs.length) return;
+          jumpToHeading(hs[Math.max(currentHeadingIdx(hs) - 1, 0)]);
           return;
         }
 
-        // g g → top
         const now = Date.now();
         if (key === 'g' && !e.shiftKey) {
           if (lastKey === 'g' && now - lastKeyTime < 500) {
             e.preventDefault();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            scrollMainTo(0);
             showToast('⬆ 回到顶部');
           }
-          lastKey = 'g'; lastKeyTime = now;
-          return;
+          lastKey = 'g'; lastKeyTime = now; return;
         }
 
-        // G → bottom
         if (key === 'G') {
           e.preventDefault();
-          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+          scrollMainTo(mainArea.scrollHeight || document.body.scrollHeight);
           showToast('⬇ 跳到底部');
           return;
         }
 
-        // ? → help
         if (key === '?') {
           e.preventDefault();
           const h = helpOverlay;
@@ -480,19 +553,22 @@ def build_page() -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>mlf-qyas-junjie · Week 1 周报</title>
+  <title>junjie · 周报</title>
   <style>{css}</style>
 </head>
 <body>
-  <nav class="topbar">
-    <h2>mlf-qyas-junjie · Week 1</h2>
-    <div class="tabs">
-{nav_buttons}
-    </div>
-  </nav>
-
+  <header class="topbar">
+    <div class="topbar-logo">junjie <span>· 周报</span></div>
+    <button class="topbar-hint" onclick="document.getElementById('kbd-help').style.display='flex'">? 快捷键</button>
+  </header>
+  <div class="layout">
+    <nav class="sidebar">
+{sidebar_html}
+    </nav>
+    <main class="main-area">
 {panels}
-
+    </main>
+  </div>
   <script>{js}</script>
 </body>
 </html>
