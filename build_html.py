@@ -53,6 +53,13 @@ REPORTS = [
         "subtitle": "onnx_junjie 统一推理 package · 项目概览 · 可行性调研 · 实施计划",
         "file": HERE / "hfcrypto_onnx.md",
     },
+    {
+        "id": "hfcrypto-0614",
+        "group": "hfcrypto-sol",
+        "title": "实盘 dry run 排查",
+        "subtitle": "0614 实盘 dry run 问题排查记录",
+        "file": HERE / "hfcrypto_0614.md",
+    },
     # ── DeepLOB / S&P 500 ─────────────────────────────────────────────
     {
         "id": "deeplob",

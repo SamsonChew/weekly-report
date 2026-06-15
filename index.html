@@ -233,6 +233,7 @@
       <button class="nav-item" data-target="hfcrypto-experiment">实验记录</button>
       <button class="nav-item" data-target="hfcrypto-w4">Week 4</button>
       <button class="nav-item" data-target="hfcrypto-onnx">onnx design review</button>
+      <button class="nav-item" data-target="hfcrypto-0614">实盘 dry run 排查</button>
     </div>
     <div class="nav-group" style="--gc:#6e40c9">
       <div class="nav-group-label">DeepLOB / S&amp;P 500</div>
@@ -8420,6 +8421,425 @@ bundle → 消费端代码一行不改。</p>
 <li><strong>训练侧（关键新发现）</strong>：<code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/{mlp_strong_120.py,export_mlp_weights_120.py,validate_mlp_cpp.py,compare_cpp_py_120.py,data/features.py,output/mlp_strong_120/weights.json}</code></li>
 <li>真实特征契约：<code>crypto-ts-alpha/cfg/genaAC_sol_mlp120_val.json</code>（115 子因子→120 列）</li>
 </ul>
+    </article>
+  </section>
+  <section class="report" id="hfcrypto-0614">
+    <header class="report-header">
+      <div class="report-group-tag" style="color:#0550ae">HF Crypto · SOL</div>
+      <h1>实盘 dry run 排查</h1>
+      <p class="subtitle">0614 实盘 dry run 问题排查记录</p>
+    </header>
+    <article class="markdown-body">
+<h1 id="hfcrypto-2026-06-14-15">hfcrypto 实盘复盘与排查（2026-06-14 / 15）</h1>
+<blockquote>
+<p>把 commit 的实盘代码跑起来；怀疑 dry-run <strong>冷启动</strong> + 表现不符合预期。
+对 <code>/share/stats_200200003.csv</code>（06-12 06:27 → 06-15 02:10，<strong>243,790 行 ≈ 2.82 天</strong>）的实盘数据进行排查 &amp; 数据分析</p>
+</blockquote>
+<hr />
+<h2 id="_1">★ 最终结论速览（关键数据分析）</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>关键发现</th>
+<th>关键数据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>标的 = SOL</strong></td>
+<td><code>200200003 = SOL on deepcoin</code>（200=deepcoin）；$67 = SOL 6 月现价（2 月回测时 $124）</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>模型 = 我们的 SOL MLP120</strong></td>
+<td>deepcoin alpha 被 centers <code>[-4.64e-4, +4.72e-4]</code> 精确约束：<strong>越界 0.0000%</strong>、贴界 max=91%/min=98%；部署仓<strong>只此一个模型</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>★ IC 衰减（核心）</strong></td>
+<td>live 6 月 <strong>0.2377</strong> vs 回测 <strong>0.3124</strong> → 掉 <strong>0.075（相对 −23%）</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>IC 时间序列(SOL)</strong></td>
+<td>OOS 2 月 <strong>0.3133</strong> / 3 月 <strong>0.3196</strong> / 4 月 <strong>0.3020</strong>(稳)→ 6 月 live <strong>0.2377</strong>(掉)→ <strong>根因=模型陈旧(2月训、~4月没重训)</strong></td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>延迟无损</strong></td>
+<td>trade-mid(deepcoin) <strong>0.2397</strong> ≈ md-mid(binance) <strong>0.2377</strong> → 跨所延迟<strong>不掉 IC 反而有显著提升，参考下面</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>逐日 IC 不升反降</strong></td>
+<td>Day1 <strong>0.278</strong>(最高)→ 0.216 → 0.217 → 0.266 → 非 warm-up，"冷启动暖机变好"<strong>数据不支持</strong></td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>alpha 尺度</strong></td>
+<td>std <strong>3.66e-5</strong>、q99.9 <strong>2.13e-4</strong>、max <strong>4.55e-4</strong>(均 return 尺度,与 MLP120 一致)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>一句话</strong>:<strong>同币、同模型、同特征源(binance),唯一变量是时间 → IC 从 0.31 衰减到 0.24 是模型陈旧,解法=用近期数据重训</strong>;延迟不掉 IC,冷启动判不死(金标准 <code>corr vs Python</code> 冷 0.93/热 0.97)。</p>
+<hr />
+<h2 id="stats_200200003282">一、实盘数据复盘（stats_200200003，2.82 天）</h2>
+<blockquote>
+<p>方法：Python 离线复刻 <code>do_once</code> 发单（MLP return 参数 <code>alpha_lean=2.87 / pos_lean=0.002 / fee 5e-05 / gap 50ms</code>，持仓现金流）。
+（为什么不跑真 C++ run_sim：stats 是模型<strong>输出</strong>，不是 raw tick <strong>输入</strong>；run_sim 需 raw tick + 模型 + cfg 重算因子，这套 deepcoin 标的的原料我没有，只能拿已算好的 alpha 重放触发。）</p>
+</blockquote>
+<h3 id="1grossmid-grossfill-vs">任务 1：gross@mid / gross@fill vs 我们最好回测</h3>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>gross@mid</th>
+<th>gross@fill</th>
+<th>net</th>
+<th>成交</th>
+<th>来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SOL MLP 信号层 top0.5%(理想上界)</td>
+<td><strong>+2.102</strong></td>
+<td>—</td>
+<td>+1.101</td>
+<td>—</td>
+<td>§4.3 Python gate</td>
+</tr>
+<tr>
+<td>SOL MLP C++ 热态 tt=3.5(2/18)</td>
+<td>+1.470</td>
+<td>—</td>
+<td>−0.139</td>
+<td>1.45%</td>
+<td>§4.5 run_sim</td>
+</tr>
+<tr>
+<td>SOL MLP C++ 热态 tt=7(24天均)</td>
+<td><strong>+1.77</strong></td>
+<td>—</td>
+<td>+0.18</td>
+<td>166/天</td>
+<td>§4.5 run_sim</td>
+</tr>
+<tr>
+<td><strong>deepcoin live tt=3.5</strong></td>
+<td>+0.266</td>
+<td>−0.489</td>
+<td>−0.989</td>
+<td>1700</td>
+<td>本次</td>
+</tr>
+<tr>
+<td><strong>deepcoin live tt=5</strong></td>
+<td>+0.490</td>
+<td>−0.287</td>
+<td>−0.787</td>
+<td>384</td>
+<td>本次</td>
+</tr>
+<tr>
+<td><strong>deepcoin live tt=7</strong></td>
+<td><strong>+1.475</strong></td>
+<td><strong>+0.540</strong></td>
+<td><strong>+0.040</strong></td>
+<td>76</td>
+<td>本次</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>tt=7：deepcoin gross@mid +1.48 ≈ SOL +1.77（同量级）</strong>，gross@fill 转正 +0.54，<strong>net +0.040 ≈ 0</strong>（和 SOL +0.18 同档）。</li>
+<li><strong>共同点：都 ≈ 0</strong>，穿价吃光 edge → <strong>taker 共同死结</strong>。tt=7 时 <code>net = gross@mid +1.48 − 穿价 0.94 − fee 0.5</code>；穿价随收紧变大（强信号时刻价差宽）。</li>
+</ul>
+<h3 id="2">任务 2：冷启动取证</h3>
+<table>
+<thead>
+<tr>
+<th>证据</th>
+<th>观察</th>
+<th>指向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开头 30min alpha ramp</td>
+<td>std 06:27 <strong>1.05e-5</strong> → 06:57 <strong>3.14e-5</strong> → 稳 ~4e-5（放大 ~3×）</td>
+<td>⚠️ 疑似冷（若已暖 bar1 就该满幅）；<strong>但早晨低波动是 confound</strong></td>
+</tr>
+<tr>
+<td>总时长 2.82 天 &lt; 8 天</td>
+<td>多日因子（Sr12TradeImb）无论如何没暖透</td>
+<td>⚠️ 除非启动回放 8 天，否则慢因子全程冷</td>
+</tr>
+<tr>
+<td>diff（基差）头 100 值</td>
+<td>全 = 1.00000</td>
+<td>基差本就 ~0，看不出暖机</td>
+</tr>
+</tbody>
+</table>
+<p>→ 两条中等嫌疑指向"06-12 06:27 冷起"，但<strong>都不是铁证</strong>。</p>
+<h3 id="3icedge-day1">任务 3：IC/edge 随时间越来越好吗？——❌ 没有，Day1 最高</h3>
+<table>
+<thead>
+<tr>
+<th>日期</th>
+<th>行数</th>
+<th>IC_1s(Spearman)</th>
+<th>top0.5% edge(1s)</th>
+<th>alpha_std</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>06-12</strong></td>
+<td>63,172</td>
+<td><strong>+0.2784</strong> ← 最高</td>
+<td>+0.647</td>
+<td>4.13e-5</td>
+</tr>
+<tr>
+<td>06-13</td>
+<td>86,400</td>
+<td><strong>+0.2162</strong> ← 最低</td>
+<td>+0.711</td>
+<td>3.33e-5</td>
+</tr>
+<tr>
+<td>06-14</td>
+<td>86,400</td>
+<td>+0.2173</td>
+<td>+0.514</td>
+<td>3.52e-5</td>
+</tr>
+<tr>
+<td>06-15(半天)</td>
+<td>7,818</td>
+<td>+0.2782</td>
+<td>+0.878</td>
+<td>4.43e-5</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>IC 不升反降（Day1 最高），是 regime 波动不是 warm-up</strong> → "冷启动暖机让指标越来越好"假设<strong>数据不支持</strong>。（注：IC 对冷热不敏感，所以"IC 不升"也不能反证它是热的。）</p>
+<hr />
+<h2 id="ic">二、IC 对比与排查 → 定论：模型陈旧</h2>
+<h3 id="md-midbinance-vs-trade-middeepcoin-1s-icpearson-spearman">主表：md-mid(binance) vs trade-mid(deepcoin) · 每天 1s IC（Pearson + Spearman）</h3>
+<table>
+<thead>
+<tr>
+<th>日期</th>
+<th>行数</th>
+<th>md-mid Pearson</th>
+<th>md-mid Spearman</th>
+<th>trade-mid Pearson</th>
+<th>trade-mid Spearman</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>06-12(半天)</td>
+<td>63,172</td>
+<td>+0.1957</td>
+<td>+0.2714</td>
+<td>+0.2228</td>
+<td>+0.2784</td>
+</tr>
+<tr>
+<td>06-13(整天)</td>
+<td>86,400</td>
+<td>+0.1433</td>
+<td>+0.2155</td>
+<td>+0.1725</td>
+<td>+0.2162</td>
+</tr>
+<tr>
+<td>06-14(整天)</td>
+<td>86,400</td>
+<td>+0.1547</td>
+<td>+0.2195</td>
+<td>+0.1785</td>
+<td>+0.2173</td>
+</tr>
+<tr>
+<td>06-15(~2h)</td>
+<td>7,818</td>
+<td>+0.2310</td>
+<td>+0.2798</td>
+<td>+0.2455</td>
+<td>+0.2782</td>
+</tr>
+<tr>
+<td><strong>全程</strong></td>
+<td>243,790</td>
+<td><strong>+0.1699</strong></td>
+<td><strong>+0.2377</strong></td>
+<td><strong>+0.1955</strong></td>
+<td><strong>+0.2397</strong></td>
+</tr>
+<tr>
+<td><strong>SOL MLP120 回测对照(binance)</strong></td>
+<td>5.88M</td>
+<td><strong>+0.2954</strong></td>
+<td><strong>+0.3124</strong></td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>口径：mid = <code>(bp1+ap1)/2</code>；价基用 mid（信号质量），穿价的影响在 PnL（gross@fill）不在 IC。SOL 当年用 binance 训练/评估 → 对齐 <strong>md-mid 列</strong>（SOL 没在 bybit/deepcoin 算 IC）。基差≈0，deepcoin md/trade 几乎一样。
+<strong>Spearman &gt; Pearson</strong>(全程 0.238 vs 0.170)→ 排序预测力强于幅度,典型短周期 alpha。</p>
+</blockquote>
+<h3 id="_2">两个结论</h3>
+<ol>
+<li><strong>✅ deepcoin(执行所) vs binance(信号源) IC 几乎无差</strong> —— trade-mid 0.2397 ≈ md-mid 0.2377。<strong>跨所路由 deepcoin、延迟，没有明显 IC 损失。</strong></li>
+<li><strong>⚠️ live 整体 IC vs 本地回测低 ~0.075</strong> —— 0.2377 vs 0.3124 → <strong>根因见下：模型陈旧。</strong></li>
+</ol>
+<h3 id="_3">第二结论排查 → 模型陈旧（时间漂移）</h3>
+<p><strong>① 验证 <code>weights.json</code> = 我们的 SOL MLP120，就是它在产 deepcoin alpha（铁证）</strong>
+| 验证项 | 值 | 判定 |
+|---|---|---|
+| weights centers(return) | <code>[-4.641e-4 … +4.719e-4]</code>、120 特征 | = §4 那份 SOL MLP120 |
+| deepcoin alpha 范围 | [−4.554e-4, +4.292e-4] | 完全落在 center [min,max] 内 |
+| 越界占比 | <strong>0.0000%</strong> | center-decode 铁律满足 |
+| 贴界程度 | max=<strong>91%</strong>×上界、min=<strong>98%</strong>×下界 | 贴着两端 → 就是这份 centers 在算 |
+| 部署仓模型数 | <strong>只有 <code>mlp_strong_120</code> 一个</strong> | 线上就是这份 SOL MLP120 在服务 SOL |</p>
+<p><strong>② 训练区间 + SOL OOS 逐月稳定性（OOS 稳到 4 月）</strong>
+| 阶段 | 区间 | Spearman_1s |
+|---|---|---|
+| <strong>训练</strong> | 2026-01-01 → <strong>02-14</strong>(45 天) | — |
+| OOS 2 月 | 02-18 起 | <strong>0.3133</strong> |
+| OOS 3 月 | 整月 | <strong>0.3196</strong> |
+| OOS 4 月 | 到 04-26 | <strong>0.3020</strong> |
+| <strong>live 6 月</strong> | 06-12→15 | <strong>0.2377</strong> |</p>
+<p><strong>③ 定论</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>1-2月训练 → 2-4月OOS稳0.31(头2.5月不掉) → [4月底-6月没测] → 6月 live 0.24
+</code></pre></div>
+
+<ul>
+<li>同币(SOL)、同模型(这份 weights)、同特征源(binance) → <strong>唯一变量是时间</strong>。</li>
+<li><strong>2 月训的模型 6 月还在用，~4 个月没重训 → IC 从 0.31 衰减到 0.24（相对掉 23%）。</strong></li>
+<li>排除：冷启动(冷热 IC 只差 0.004)、延迟(结论1)、换币(已证是 SOL)。</li>
+</ul>
+<p><strong>④ 解法：用近期数据(到 ~6 月)重训 MLP120</strong> → 大概率提回 ~0.31。<strong>信号没坏，就是该换新。</strong> 训练天数(45天)够，<strong>陈旧度(4 个月没重训)才是真问题。</strong></p>
+<hr />
+<h2 id="_4">三、冷启动：机制 / 如何确保 / 如何排查</h2>
+<h3 id="warmup-st_time">机制（代码无 warmup 开关，全靠 st_time）</h3>
+<ul>
+<li><code>run_sim.cc</code>、策略、因子里<strong>搜不到 warmup/preheat/skip 任何逻辑</strong>。热/冷 <strong>100% 由 <code>data-provider.&lt;venue&gt;.raw_dp.st_time</code> 决定</strong> —— 因子状态从数据第一刻累积。</li>
+<li><code>st_time = 目标交易日</code> → <strong>冷</strong>(当天从零，坏一整天)；<code>st_time = 目标日−8天</code> → <strong>热</strong>(因子收敛)。</li>
+</ul>
+<h3 id="_5">如何确保热启动</h3>
+<ul>
+<li><strong>dry-run / run_sim</strong>：<code>st_time ≤ 目标日−8天</code>，<strong>只分析热透后的天</strong>。</li>
+<li><strong>实盘 live（没捷径）</strong>：进程<strong>必须先吃 ≥8 天历史</strong>(回放或提前空跑)才信 alpha；<strong>头 8 天 alpha/下单不算数</strong>。</li>
+</ul>
+<h3 id="_6">如何判断冷热（金标准）</h3>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>冷</th>
+<th>热</th>
+<th>可靠性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>corr vs Python</strong></td>
+<td>~0.926</td>
+<td>~0.973</td>
+<td>★ 金标准(对冷热敏感)</td>
+</tr>
+<tr>
+<td>cfg st_time</td>
+<td>=分析日</td>
+<td>≤分析日−8天</td>
+<td>直接</td>
+</tr>
+<tr>
+<td>IC</td>
+<td>—</td>
+<td>—</td>
+<td>✗ 不敏感(冷热差 0.004)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dry-run">如何排查这次 dry-run / 实盘到底怎么启动的（按能定论排序）</h3>
+<ol>
+<li><strong>核对两件事（最快）</strong>：① genaAC 跑的是 <code>val</code> 还是 <code>warm8</code>？（val=冷）② 实盘 HFTaking <code>st_time</code> 设几号？有没有提前 ≥8 天回放？</li>
+<li>看启动日志 / 进程时长(≥8 天？这次才 2.8 天)。</li>
+<li>看实盘 cfg 的 <code>st_time</code>。</li>
+<li><strong>corr vs Python</strong>(金标准，需模型+原始数据)。</li>
+<li>stats 弱信号(开头 alpha 偏小、IC 分段；判不死)。</li>
+</ol>
+<h3 id="readme">⚠️ README 坑：默认示例是冷的</h3>
+<p><code>crypto-ts-alpha/README.md</code> 有 3 个 genaAC cfg：<code>val</code>(单日冷,"不代表服务态")/ <code>warm</code>(49天)/ <strong><code>warm8</code>(8天热,"实盘推荐,corr≈0.973")</strong>。但 <strong>① 运行示例用 <code>val</code> ② 自检基准是 <code>val</code> ③ 流程"先 val 后 warm8"易停在 val</strong> → 照抄易跑成冷。<strong>且这是 genaAC(alpha 验证)，不是实盘 HFTaking 下单的预热。</strong></p>
+<hr />
+<h2 id="_7">四、我后续的动作</h2>
+<ol>
+<li><strong>重训模型</strong>（最优先）：用近期(到 ~6 月)数据重训 MLP120，把 IC 从 0.24 提回 ~0.31。<strong>模型 4 个月没更新是 IC 下降的真因。</strong></li>
+<li><strong>确保热启动</strong>：实盘启动设 <code>st_time ≤ 上线日−8天</code>，或提前 8 天空跑；头 8 天不算数。README 补一条实盘(非 genaAC)预热指引，运行示例从 <code>val</code> 改 <code>warm8</code>。</li>
+<li><strong>核对启动方式 + 定冷热</strong>：核对这次到底是冷是热(见 §三);需要时拿模型+原始数据算 <code>corr vs Python</code> 给冷/热铁证。</li>
+<li><strong>策略层试 maker</strong>：taker 在成本墙下赚不到钱（tt=7 也 ≈0）→ 验证 <strong>maker</strong>（tt=7 的 gross@fill +0.54 在免穿价+返佣下可落袋）。</li>
+<li><strong>上实时 feature importance 监控</strong>（见 §五）—— 这次"模型陈旧"本可提前预警；实时盯每特征滚动 IC 能提前几周看出"该重训"，而非等实盘亏了才发现。</li>
+</ol>
+<hr />
+<h2 id="mlp-feature-importance">五、非线性模型(MLP)实时 feature importance 监控（开发方向）</h2>
+<blockquote>
+<p>背景：线性模型能"实时算过去 1h 每特征 IC"做输出确认 feature importance；MLP 非线性，要换方法。本节给<strong>方法 + 工程权衡</strong>。</p>
+</blockquote>
+<h3 id="51-mlp">5.1 为什么线性简单、MLP 难</h3>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>线性:  alpha = Σ wᵢ·xᵢ   → 贡献 = wᵢ·xᵢ(权重恒定)→ 过去1h 每特征 IC = corr(xᵢ,y) 直接滚动算
+MLP :  alpha = f(x) 非线性 → 没有恒定权重,得换方法
+</code></pre></div>
+
+<h3 id="52">5.2 推荐方法：梯度归因（局部等效权重）</h3>
+<ul>
+<li>MLP 在每个输入点<strong>局部 = 线性</strong>,等效权重 = 梯度:<code>wᵢ_eff(t) = ∂alpha/∂xᵢ</code>(随输入变 = MLP 的"实时权重")。</li>
+<li>贡献:<code>(∂alpha/∂xᵢ)·xᵢ</code> —— <strong>完全对标线性的 wᵢ·xᵢ</strong>。</li>
+<li><strong>一次 backward 拿全部 120 个梯度</strong>(120 入 1 出 → backward 比 forward 快),网络小 → <strong>微秒级</strong>。center-decode 梯度照样穿过 softmax 回到输入。</li>
+</ul>
+<p><strong>滚动 1h 输出(对标线性那套):</strong>
+| 指标 | 公式 | 含义 |
+|---|---|---|
+| 重要性 | <code>mean(\|∂alpha/∂xᵢ·xᵢ\|)</code> | 这特征对 alpha 的平均驱动力(= 线性 |wᵢxᵢ|) |
+| 预测力(model-free) | <code>corr(xᵢ, y_1h)</code> | 特征本身 IC(和线性同款,不依赖模型) |
+| 贡献方向 | <code>corr(∂alpha/∂xᵢ·xᵢ, y_1h)</code> | MLP 给这特征的贡献方向对不对 |</p>
+<p><strong>三个关键差别(vs 线性):</strong>
+1. <strong>等效权重是时变的</strong> —— 同特征在不同 regime 权重不同(MLP 自适应重加权);监控的是"当前权重"。
+2. <strong>一阶近似抓不全交互</strong> —— 要更准用 <strong>Integrated Gradients</strong>(从基线积分,满足贡献加总守恒),成本 ~10-20 次前向 → <strong>降频算</strong>。
+3. <strong>裸 IC ≠ MLP 用没用它</strong> —— <code>corr(xᵢ,y)</code> 高不代表 MLP 在用它(可能被别的特征替代);要"MLP 实际依赖哪些"必须看梯度归因。</p>
+<h3 id="53">5.3 ★ 工程权衡：别放交易关键路径,就几乎不加延迟</h3>
+<p><strong>核心:监控 ≠ 交易,两条路径分开:</strong>
+| 路径 | 干什么 | 延迟敏感? |
+|---|---|---|
+| <strong>交易关键路径</strong> | 因子 → 前向 → alpha → 触发 → 下单(200ms 都在这) | ★ 极敏感 |
+| <strong>监控路径</strong> | 梯度 + 滚动 IC/贡献 | ✗ <strong>不敏感,可异步、可降频</strong> |</p>
+<p>→ <strong>放监控路径,交易下单一点不变。</strong> 担心的延迟只在"硬塞进关键路径"时才发生。</p>
+<p><strong>开销很小(量化):</strong>
+| 开销 | 大小 |
+|---|---|
+| 梯度计算 | ~0.1-0.2ms/bar(对照特征 200ms 可忽略) |
+| 存储 | 滚动 1h:120×3600 ≈ 几 MB |
+| 滚动 IC | 增量更新 O(120)/bar(用 online correlation,不重算) |</p>
+<p>→ <strong>真正的 trade-off 不是交易延迟,是"监控保真度/新鲜度 vs 工程复杂度"</strong>:① 异步 vs 关键路径 ② 每 bar vs 每分钟(feature importance 不秒级突变,每分钟够) ③ gradient×input(便宜实时) vs Integrated Gradients(保真降频)。</p>
+<p><strong>推荐架构:</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>交易线程: 因子 → 前向 → alpha → 下单            (精简,不动)
+            │ (复制 x、alpha 到队列)
+监控线程: backward → gradient×input → 滚动1h IC/贡献 → 输出
+            (异步、降频、单独进程也行;挂了不影响交易)
+</code></pre></div>
+
+<h3 id="54">5.4 价值</h3>
+<p><strong>成本 = 几 MB + 一个异步线程;回报 = 模型退化早期预警</strong>(本可提前几周抓到这次的 IC 0.31→0.24 衰减)。对交易延迟零影响,对风控价值大。</p>
     </article>
   </section>
   <section class="report" id="deeplob">
