@@ -69,6 +69,12 @@ REPORTS = [
         "subtitle": "新数据接入范式 + Regime-Adaptive 动态形态 · bar/FiLM/Hypernet γ_t",
         "file": HERE / "model_summary_week23.md",
     },
+    {
+        "id": "hfcrypto-w4",
+        "title": "HF Crypto SOL - W4",
+        "subtitle": "信号→C++→因子修复→run_sim 四阶段 · 单120MLP · 缺口在穿价",
+        "file": HERE / "hfcrypto_week4.md",
+    },
 ]
 
 MD_EXTS = [
