@@ -46,6 +46,13 @@ REPORTS = [
         "subtitle": "信号→C++→因子修复→run_sim 四阶段 · 单120MLP · 缺口在穿价",
         "file": HERE / "hfcrypto_week4.md",
     },
+    {
+        "id": "hfcrypto-onnx",
+        "group": "hfcrypto-sol",
+        "title": "onnx design review",
+        "subtitle": "onnx_junjie 统一推理 package · 项目概览 · 可行性调研 · 实施计划",
+        "file": HERE / "hfcrypto_onnx.md",
+    },
     # ── DeepLOB / S&P 500 ─────────────────────────────────────────────
     {
         "id": "deeplob",
