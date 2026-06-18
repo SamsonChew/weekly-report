@@ -283,6 +283,7 @@
       <button class="nav-item" data-target="hfcrypto-w4">Week 4</button>
       <button class="nav-item" data-target="hfcrypto-onnx">onnx design review</button>
       <button class="nav-item" data-target="hfcrypto-0614">实盘 dry run 排查</button>
+      <button class="nav-item" data-target="hfcrypto-allmodel">所有模型形态</button>
     </div>
     <div class="nav-group" style="--gc:#6e40c9">
       <div class="nav-group-label">DeepLOB / S&amp;P 500</div>
@@ -8908,6 +8909,388 @@ MLP :  alpha = f(x) 非线性 → 没有恒定权重,得换方法
 
 <h3 id="54">5.4 价值</h3>
 <p><strong>成本 = 几 MB + 一个异步线程;回报 = 模型退化早期预警</strong>(本可提前几周抓到这次的 IC 0.31→0.24 衰减)。对交易延迟零影响,对风控价值大。</p>
+    </article>
+  </section>
+  <section class="report" id="hfcrypto-allmodel">
+    <header class="report-header">
+      <div class="report-group-tag" style="color:#0550ae">HF Crypto · SOL</div>
+      <h1>所有模型形态</h1>
+      <p class="subtitle">SOL 1s Taker Alpha · 零膨胀 + 大相对tick · 全模型形态汇总</p>
+    </header>
+    <article class="markdown-body">
+<h1 id="hf_crypto-sol-1s-taker-alpha">hf_crypto SOL 1s Taker Alpha —— 尝试过的所有模型形态(含效果)</h1>
+<p>标的 SOL,1s taker alpha。核心问题:零膨胀(68% y≈0)+ 大相对 tick(0.80bp)。
+下表 edge0.5% 除注明外均为<strong>研究层 gross</strong>(71d);实盘上线线另列 net。口径不可跨层直接比。</p>
+<hr />
+<h2 id="a-lgbm">A. LGBM 分类(分箱)</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>clf7</td>
+<td>7类 tick 分箱 + center-decode</td>
+<td>edge <strong>1.697</strong> / IC 0.314 / oracle 7.4%</td>
+<td>基线</td>
+</tr>
+<tr>
+<td>clf7_mag</td>
+<td>clf7 + 6 regime 特征(无新数据)</td>
+<td>edge <strong>1.706</strong> / sign 0.703</td>
+<td>单模最高</td>
+</tr>
+<tr>
+<td>clf5</td>
+<td>5类分箱</td>
+<td>edge 1.642 / oracle 5.4%</td>
+<td>守恒内</td>
+</tr>
+<tr>
+<td>clf3</td>
+<td>3类分箱</td>
+<td>edge 1.443 / oracle 2.6%</td>
+<td>sign↑ oracle 最低</td>
+</tr>
+<tr>
+<td>clf11_tick</td>
+<td>11类 tick 分箱</td>
+<td>edge 1.675</td>
+<td>守恒内</td>
+</tr>
+<tr>
+<td>clf11_dynq</td>
+<td>11类动态分位边界</td>
+<td>edge 1.647</td>
+<td>tick 优于分位</td>
+</tr>
+<tr>
+<td>clf15_tick</td>
+<td>15类细分箱</td>
+<td>edge 1.632 / oracle 10.5% / sign 0.662</td>
+<td>oracle↑ sign↓</td>
+</tr>
+</tbody>
+</table>
+<h2 id="b-lgbm">B. LGBM 回归</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>reg</td>
+<td>单输出 MSE 回归</td>
+<td>edge 1.664 / oracle 9.0–9.5%(最高)</td>
+<td>保留幅度;尾部不如 MLP</td>
+</tr>
+</tbody>
+</table>
+<h2 id="c-lgbm">C. LGBM 两阶段 / 混合</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C10b cls_reg_mix</td>
+<td>clf7 判 P(k) × 各类内 MSE</td>
+<td>edge 1.699 / <strong>oracle 0.101(+36%)</strong></td>
+<td>唯一破"幅度↔方向守恒"</td>
+</tr>
+<tr>
+<td>C10b_tw</td>
+<td>C10b + 极端类尾权</td>
+<td>oracle 0.114 / sign 0.665</td>
+<td>被异常值主导</td>
+</tr>
+<tr>
+<td>I0 解耦</td>
+<td>gate(reg)×dir(clf7)</td>
+<td>edge 1.648</td>
+<td>方向不可转移,失败</td>
+</tr>
+<tr>
+<td>C1 / C1b 方向器</td>
+<td>干净 2/3 类方向器</td>
+<td>edge 1.25 / 1.43,sign≈0.678</td>
+<td>收敛到方向天花板</td>
+</tr>
+</tbody>
+</table>
+<h2 id="d-lgbm-loss-objective">D. LGBM Loss / Objective 变体</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L2b hurdle</td>
+<td>logistic 两段 + MSE</td>
+<td>edge 1.663 / oracle +23%</td>
+<td>攻零膨胀仍打不过基线</td>
+</tr>
+<tr>
+<td>L1 quantile_dual</td>
+<td>τ=0.9/0.1 分位</td>
+<td>edge 1.291</td>
+<td>不如分箱</td>
+</tr>
+<tr>
+<td>L3 rank_signed</td>
+<td>lambdarank 学秩</td>
+<td>edge 1.342 / 尾部 IC 0.172</td>
+<td>尾部极低</td>
+</tr>
+<tr>
+<td>L2a magweight</td>
+<td>梯度按 |y| 放大</td>
+<td>edge 1.431</td>
+<td>伤 sign</td>
+</tr>
+<tr>
+<td>L2c focal</td>
+<td>focal 近零降权</td>
+<td>edge 1.465</td>
+<td>3d 假象,长窗退化</td>
+</tr>
+<tr>
+<td>L2e dir_aware</td>
+<td>方向感知梯度</td>
+<td>edge 1.044</td>
+<td>零吸引子,sign 崩</td>
+</tr>
+<tr>
+<td>L2f hurdle+dir</td>
+<td>叠加</td>
+<td>edge 0.958</td>
+<td>无法叠加,最差</td>
+</tr>
+</tbody>
+</table>
+<h2 id="e-mlp">E. MLP / 神经网络</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>早期 MLP(mse/focal/dir)</td>
+<td>实现未修对,10ep</td>
+<td>edge 0.80 / 0.54 / −0.02</td>
+<td>全废</td>
+</tr>
+<tr>
+<td>mlp_strong</td>
+<td>256×3 + BN + GELU,7类</td>
+<td>edge 1.704 / sign 0.718 / corr 0.973</td>
+<td>追平 LGBM 不超越</td>
+</tr>
+<tr>
+<td>mlp_clsreg_evt</td>
+<td>encoder + log 训练 + expm1 解码</td>
+<td>edge 1.705</td>
+<td>追平天花板</td>
+</tr>
+<tr>
+<td>mlp_hurdle_clf</td>
+<td>gate × clf 方向头</td>
+<td>edge 1.686 / sign 0.730 / oracle 0.064</td>
+<td>守恒反向</td>
+</tr>
+<tr>
+<td>mlp_cost</td>
+<td>成本原生 decode</td>
+<td>edge 1.609</td>
+<td>守恒</td>
+</tr>
+<tr>
+<td>mlp_big512x5</td>
+<td>512×5 深网</td>
+<td>edge 1.676</td>
+<td>加容量不破天花板</td>
+</tr>
+<tr>
+<td><strong>mlp_strong_120</strong></td>
+<td>115fix+6mag−Sr8MACD=120维</td>
+<td><strong>gross@mid 2.102 / net +1.101bp / +66% vs reg / corr 0.973</strong></td>
+<td>✅ 实盘上线,尾部最优</td>
+</tr>
+</tbody>
+</table>
+<h2 id="f">F. 表示学习 / 线性</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SupCon</td>
+<td>自监督表示(confidence+同向正样本)</td>
+<td>edge 0.316</td>
+<td>embedding 坍缩,废</td>
+</tr>
+<tr>
+<td>linear_ridge</td>
+<td>线性基准</td>
+<td>edge 1.231 / IC 0.301</td>
+<td>IC≈LGBM → 信号本质线性</td>
+</tr>
+</tbody>
+</table>
+<h2 id="g-ensemble">G. 集成(Ensemble)</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ENS_bigmag</td>
+<td>mlp_big + clf7_mag 等权 z</td>
+<td>edge <strong>1.781</strong></td>
+<td>研究层最高,跨家族去相关</td>
+</tr>
+<tr>
+<td>ENS_EQW4</td>
+<td>clf7_mag+C10b+mlp+clf7</td>
+<td>edge 1.776 / PnL 最优</td>
+<td>sign 0.706→0.720</td>
+</tr>
+<tr>
+<td>STACK_ridge4</td>
+<td>ridge 学权重</td>
+<td>edge 1.773</td>
+<td>权重≈等权,无增益</td>
+</tr>
+<tr>
+<td>ENS_AVG_Z</td>
+<td>clf3/5/7/reg 等权 z</td>
+<td>edge 1.703 / corr 0.962</td>
+<td>同质,仅 +0.006</td>
+</tr>
+<tr>
+<td>ENS3</td>
+<td>clf7_mag+C10b+mlp_strong</td>
+<td>net +0.378bp</td>
+<td>后被单 MLP 超越,弃用</td>
+</tr>
+</tbody>
+</table>
+<h2 id="h-c12">H. 特征消融形态(C12)</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>做法</th>
+<th>效果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>clf7_clean(109)</td>
+<td>砍 6 zero-gain</td>
+<td>edge 1.579</td>
+<td>掉 0.12bp</td>
+</tr>
+<tr>
+<td>clf7_sr9sr5(55)</td>
+<td>仅 sr9+sr5</td>
+<td>edge 1.480</td>
+<td>sr4+sr8 贡献 +0.10bp</td>
+</tr>
+<tr>
+<td>clf7_top16(16)</td>
+<td>仅 top16 gain</td>
+<td>edge 1.460</td>
+<td>保 86% edge,工程权衡</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="120-mlp-net">实盘上线线(120 因子 MLP 版本演进,net 口径)</h2>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>做法</th>
+<th>效果</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原版 MLP120(2月训)</td>
+<td>/share CSV,训 1/1–2/14</td>
+<td>IC 0.312(2–4月)→ live 6月衰到 0.238</td>
+<td>⚠️ 陈旧</td>
+</tr>
+<tr>
+<td>折中版 MLP120(4月重训)</td>
+<td>自产面板 0101–0420</td>
+<td>IC 0.3125 / C++↔Py corr 0.9998</td>
+<td>✅ 可用</td>
+</tr>
+<tr>
+<td>Robust MLP118(删 Sr12 b60 对)</td>
+<td>删长暖机重复因子</td>
+<td>冷接 IC 0.339 / net +0.467 转正 / 冷 corr 0.997</td>
+<td>✅ 交接 ready</td>
+</tr>
+<tr>
+<td>替身版 MLP120(b20)</td>
+<td>Sr12 b60→b20 短窗替身</td>
+<td>冷 corr 仅 0.949</td>
+<td>❌ 弃用</td>
+</tr>
+<tr>
+<td><strong>mlp_strong_120</strong></td>
+<td>115fix+6mag−Sr8MACD</td>
+<td>net +1.101bp / 热 corr 0.973</td>
+<td>✅ <strong>定案上线</strong></td>
+</tr>
+</tbody>
+</table>
+<p>真实撮合提醒:mlp_strong_120 gross@mid 2.102bp 是理想上界 → run_sim 带硬门只兑现 +0.382bp、自然触发 top0.5% 反亏 −0.47(穿价成本墙 1.61bp)。</p>
+<hr />
+<blockquote>
+<p>来源:hfcrypto_result / experiment / baseline_summary / trading / migrate / simulation / 0614 / alpha_robust / us_open_ic。</p>
+</blockquote>
     </article>
   </section>
   <section class="report" id="deeplob">

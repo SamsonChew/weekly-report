@@ -78,6 +78,13 @@ REPORTS = [
         "subtitle": "0614 实盘 dry run 问题排查记录",
         "file": HERE / "hfcrypto_0614.md",
     },
+    {
+        "id": "hfcrypto-allmodel",
+        "group": "hfcrypto-sol",
+        "title": "所有模型形态",
+        "subtitle": "SOL 1s Taker Alpha · 零膨胀 + 大相对tick · 全模型形态汇总",
+        "file": HERE / "hfcrypto_allmodel.md",
+    },
     # ── DeepLOB / S&P 500 ─────────────────────────────────────────────
     {
         "id": "deeplob",
