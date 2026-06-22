@@ -281,8 +281,6 @@
       <button class="nav-item" data-target="hfcrypto-baseline">基线复现</button>
       <button class="nav-item" data-target="hfcrypto-experiment">实验记录</button>
       <button class="nav-item" data-target="hfcrypto-w4">Week 4</button>
-      <button class="nav-item" data-target="hfcrypto-onnx">onnx design review</button>
-      <button class="nav-item" data-target="hfcrypto-onnx-demo">onnx V1 demo</button>
       <button class="nav-item" data-target="hfcrypto-0614">实盘 dry run 排查</button>
       <button class="nav-item" data-target="hfcrypto-allmodel">所有模型形态</button>
       <button class="nav-item" data-target="hfcrypto-alpha-robust">Week 5 实盘模型迭代</button>
@@ -305,6 +303,11 @@
     <div class="nav-group" style="--gc:#9a3412">
       <div class="nav-group-label">期货</div>
       <button class="nav-item" data-target="futures-code">design review</button>
+    </div>
+    <div class="nav-group" style="--gc:#1a7f37">
+      <div class="nav-group-label">ONNX</div>
+      <button class="nav-item" data-target="hfcrypto-onnx">onnx design review</button>
+      <button class="nav-item" data-target="hfcrypto-onnx-demo">onnx V1 demo</button>
     </div>
     </nav>
     <main class="main-area">
@@ -7818,911 +7821,6 @@ L = Σ_i L_i
 - <strong>TODO 2（信号天花板，长线）</strong>：若要再提信号上限，唯一出路是加<strong>原始 LOB 特征</strong>（115 因子已被 C12/C11 证明信息饱和、无冗余可榨）——需与 senior 确认数据可得性。
 - <strong>TODO 3（工程收尾）</strong>：<code>crypto-ts-alpha</code>（<code>samson_dev_alpha</code>）+ <code>crypto-ts-strategy</code>（<code>samson_dev_strategy</code>）均 commit-ready、待 user 自提；<code>sol_alpha</code> Python 链路仍待迁入 <code>hfcrypto_junjie</code>。
 - <strong>TODO 4（风险诊断副产品）</strong>：最差日（0414/0221）的亏损是<strong>信号当天方向就错</strong>（gross@mid 为负），非执行成本——若日后要救尾部，应做"滚动 realized-edge 熔断"（信号转负就降仓），而非执行层调参。</p>
-    </article>
-  </section>
-  <section class="report" id="hfcrypto-onnx">
-    <header class="report-header">
-      <div class="report-group-tag" style="color:#0550ae">HF Crypto · SOL</div>
-      <h1>onnx design review</h1>
-      <p class="subtitle">onnx_junjie 统一推理 package · 项目概览 · 可行性调研 · 实施计划</p>
-    </header>
-    <article class="markdown-body">
-<h1 id="onnx_junjie-onnx-package-faq">onnx_junjie ONNX 统一推理 package —— 项目概览与 FAQ</h1>
-<blockquote>
-<p>本块用一页讲清<strong>为什么做、优化什么、难点、常见问题</strong>。
-所有结论已对真实代码/工具/数据做过 file:line 级验证（见 §8.0）。
-技术细节往下看：§0–§6 现状基线、§7 可行性调研、§8 可执行实施计划。</p>
-<p><strong>总结</strong>：把"我训练的深度模型"做成同事 <code>import</code> 就能用的统一产物，<strong>融入增强</strong> senior
-的 <code>crypto-ts-alpha</code>/<code>crypto-ts-strategy</code> ，让任意模型结构都能零改
-C++ 进实盘。</p>
-</blockquote>
-<h2 id="onnx">一、项目的意义 / ONNX 的优势 / 为什么需要它</h2>
-<p><strong>现状痛点（为什么需要）</strong>：
-- 每种组合模型都在 C++ 里<strong>手写一遍 forward</strong>（已为此养了 <code>lgbm</code>/<code>mlp</code>/<code>cls_reg_mix</code> 三套），
-  换个结构就得重写一套。
-- Python 训练端与 C++ 推理端必须<strong>逐行对齐</strong>（特征顺序、预处理、数学），错位还<strong>不报错、静默失真</strong>。
-- 别人想复用我的模型，门槛很高。</p>
-<p><strong>ONNX 的优势</strong>：
-| 优势 | 解决的痛点 |
-|---|---|
-| <strong>架构无关</strong>：任意 PyTorch 结构导出一个 <code>.onnx</code>，C++ 零改代码加载 | 加新模型不再手写 forward |
-| <strong>跨语言</strong>：Python 与 C++ <strong>加载同一个文件</strong>推理 | 训练端=推理端，根除"两套实现对不齐" |
-| <strong>自包含</strong>：预处理(NaN 填充+标准化)+解码可烤进图 | 杜绝"漏做预处理/口径不一" |
-| <strong>业界标准</strong>：<code>torch.onnx</code> 原生导出，工具成熟、不绑框架 | 长期可维护，易上手 |</p>
-<p><strong>例子</strong>：模型从"一段必须自己写的 C++ 代码"升级为"一个可分发、自校验、跨语言的产物"；
-团队任何人都能训练 → 导出 → 直接进实盘，且<strong>不影响目前 senior 们实盘测试框架</strong>。</p>
-<h2 id="_1">二、对比现状：优化了什么 · 提效在哪 · 格式如何</h2>
-<p><strong>流程对比</strong>：
-| 环节 | 现状 | ONNX 后 |
-|---|---|---|
-| 训练（Python） | 不变 | 不变 |
-| 导出 | 手写 <code>export_mlp_weights.py</code>，只存权重 | <code>export()</code> 一键导出<strong>自包含 bundle</strong> |
-| C++ 推理 | 手写 forward（<code>MLPAlpha.h</code>，每种结构一套） | <strong>通用 <code>ts_onnx</code> alpha，零改代码</strong> |
-| 预处理 | C++ 手写 scaler+NaN，易与训练不一致 | <strong>烤进图</strong>，单一实现 |
-| 特征对齐 | cfg 手维护 + <code>gen_lgbm_cfg.py</code> 从列名反解 | <strong><code>schema.json</code> 单一事实来源 + 自动校验</strong> |
-| 换新结构 | 重复全套（重写 forward+对齐+逐值校验） | <strong>只换一个 <code>.onnx</code> 文件</strong> |</p>
-<p><strong>提效核心</strong>：① 加新模型/新结构，C++ 从"重写一套 forward+对齐"降到<strong>零代码</strong>（最大提效）；
-② 协作：同事 <code>pip install</code> → 训练 → <code>export()</code> → 发 bundle，全程不碰 C++；
-③ 正确性：预处理与特征顺序从"两端手维护"变成"产物自带 + 启动自动校验"，消除最常见的静默错位。</p>
-<p><strong>格式（bundle = 版本化产物，两个文件）</strong>：
-- <code>model.onnx</code>：计算图 = 预处理(NaN→median + 标准化) + 网络 + softmax + center 解码；
-  <strong>输入 = 原始特征向量，输出 = 单个标量 alpha</strong>。
-- <code>schema.json</code>：<strong>有序</strong>子因子清单（每项 <code>name</code>+<code>params</code>+<code>shape</code>）+ <code>input_dim</code> + 输出单位 +
-  版本/训练 commit —— 特征对齐契约本体。示意：</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>{<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;model_id&quot;</span>:<span style="color: #BA2121">&quot;mlp_strong_120&quot;</span>,<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;input_dim&quot;</span>:<span style="color: #666666">120</span>,<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;output&quot;</span>:{<span style="color: #008000; font-weight: bold">&quot;unit&quot;</span>:<span style="color: #BA2121">&quot;return&quot;</span>},
-<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;sub_alphas&quot;</span>:[
-<span style="color: #bbbbbb">    </span>{<span style="color: #008000; font-weight: bold">&quot;name&quot;</span>:<span style="color: #BA2121">&quot;CDiffDensity&quot;</span>,<span style="color: #008000; font-weight: bold">&quot;params&quot;</span>:{<span style="color: #008000; font-weight: bold">&quot;level&quot;</span>:<span style="color: #666666">50</span>},<span style="color: #008000; font-weight: bold">&quot;shape&quot;</span>:<span style="color: #666666">1</span>,<span style="color: #008000; font-weight: bold">&quot;col_start&quot;</span>:<span style="color: #666666">0</span>,<span style="color: #008000; font-weight: bold">&quot;col_end&quot;</span>:<span style="color: #666666">1</span>},
-<span style="color: #bbbbbb">    </span><span style="color: #BA2121">&quot;... 共 115 项, 顺序即组装顺序 ...&quot;</span>,
-<span style="color: #bbbbbb">    </span>{<span style="color: #008000; font-weight: bold">&quot;name&quot;</span>:<span style="color: #BA2121">&quot;magnitude&quot;</span>,<span style="color: #008000; font-weight: bold">&quot;params&quot;</span>:{},<span style="color: #008000; font-weight: bold">&quot;shape&quot;</span>:<span style="color: #666666">6</span>,<span style="color: #008000; font-weight: bold">&quot;col_start&quot;</span>:<span style="color: #666666">114</span>,<span style="color: #008000; font-weight: bold">&quot;col_end&quot;</span>:<span style="color: #666666">120</span>}
-<span style="color: #bbbbbb">  </span>]<span style="color: #bbbbbb"> </span>}
-</code></pre></div>
-
-<h2 id="_2">三、难点在哪 · 特征对齐怎么解决</h2>
-<p><strong>难点（均已定位/验证）</strong>：
-1. <strong>精度对齐</strong>：现状 C++ 全 <code>double</code>，ONNX 默认 <code>float32</code>。已实测漂移仅 <strong>~1.4e-8</strong>（相对 ~3e-5），
-   可接受；需逐 bit 兼容可导 f64 图。另有 <strong>centers 尺度坑</strong>：字段名叫 <code>centers_bp</code> 实为 return 尺度
-   （差 <strong>1e4 倍</strong>），导出务必对齐生产 cfg 实喂那套。
-2. <strong>NaN 语义（最易踩）</strong>：ONNX <code>IsNaN</code> <strong>不捕 ±inf</strong>，而 C++ 用 <code>!isfinite</code> 把 inf 也当缺失 →
-   图里必须 <code>IsNaN OR IsInf</code> 才一致。
-3. <strong>依赖接入</strong>：C++ 新增 onnxruntime（已确认 conancenter 有，<code>conanfile.txt</code> 加一行、CMake 零改；
-   体积 +~10MB 可裁剪到 2–4MB）。
-4. <strong>特征对齐（头号风险）</strong> → 见下。</p>
-<p><strong>特征对齐怎么解决</strong>：
-- 病根：特征向量 = "按固定顺序把 115 个子因子输出拼成 120 维"，顺序/参数/多输出展开任一处两端不一致，
-  预测就静默失真。现状靠 cfg 手维护 + 从列名反解（多输出如 <code>magnitude</code> 会丢 shape 信息）。
-- 解法：<strong><code>schema.json</code> 做单一事实来源</strong>，显式记录<strong>有序</strong>子因子（name+params+shape）。
-  C++ 通用 <code>OnnxAlpha</code> 读 schema 装配、按 shape 展开，<strong>逐位复刻</strong>现有 <code>MLPAlpha</code> 的组装循环；并设
-  <strong>四道自动校验</strong>：① 顺序=训练顺序 ② 每项 <code>shape</code>==运行时 <code>get_shape()</code> ③ <code>Σshape</code>==<code>input_dim</code>==onnx
-  入口维 ④ 组装末尾必须正好填满。任一不符<strong>直接 throw</strong> —— 错位从"静默失真"变成"启动即报错"。</p>
-<h2 id="faq">四、大家可能关心的问题（FAQ）</h2>
-<table>
-<thead>
-<tr>
-<th>问题</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>会不会替换/动 senior 现有的东西？</td>
-<td><strong>不会，纯加法</strong>。现有 <code>mlp</code>/<code>lgbm</code>/<code>cls_reg_mix</code> 与所有 cfg/脚本一行不动；strategy 只是 JSON 里多一个可选名字 <code>ts_onnx</code>，框架/<code>.so</code> 加载/消费路径全不变。</td>
-</tr>
-<tr>
-<td>实盘会变慢吗？</td>
-<td><strong>不会</strong>。小模型单行推理<strong>微秒级</strong>，对 1s bar 占比 &lt;0.01%；session 启动开销只在进程启动一次。</td>
-</tr>
-<tr>
-<td>要重新训练模型吗？</td>
-<td><strong>不用</strong>。现有 <code>weights.json</code>（与部署端逐字节相同）直接导出，第一个模型不重训。</td>
-</tr>
-<tr>
-<td>精度会变吗？影响历史回测吗？</td>
-<td>f32 漂移 ~1e-8（远小于 alpha 波动），可接受；需逐 bit 一致可用 f64 图。切 ONNX 后报告基准建议重锚到 f32 口径。</td>
-</tr>
-<tr>
-<td>LGBM 也要走 ONNX 吗？</td>
-<td><strong>不</strong>。LGBM 已原生链 <code>c_api</code>（精确），LGBM→ONNX 有 float32 阈值精度差——只深度模型走 ONNX。</td>
-</tr>
-<tr>
-<td>二进制体积涨多少？</td>
-<td>onnxruntime 静态链约 +10MB，可 minimal build 压到 2–4MB，或独立 <code>.so</code>。</td>
-</tr>
-<tr>
-<td>大家具体怎么用？</td>
-<td><code>pip install hf-model</code> → 训练任意 torch 模型 → <code>export(model, schema)</code> 得 bundle → 发出 → 实盘丢给 <code>ts_onnx</code>，C++ 零改代码。</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>我目前想要如何去做</strong>：落地步骤见 §8「可执行实施计划」（P0–P5，file-level，每阶段带验收 gate）。
-最快路径 = 先做 P0–P2 的 Python 闭环验证可行，再推 C++ 接入。</p>
-</blockquote>
-<hr />
-<h1 id="hf_crypto-lgbm-mlp-feature">hf_crypto 模型推理现状（LGBM / MLP 输入输出与 feature 定义）</h1>
-<blockquote>
-<p>调研日期：2026-06-10。本文记录 SOL alpha 模型当前 Python 训练端 ↔ C++ 推理端的输入/输出定义、
-feature 如何定义、以及做 feature 实验的方式。作为后续（含 ONNX 化）工作的基线现状。</p>
-</blockquote>
-<hr />
-<h2 id="0">0. 一句话总结</h2>
-<p>模型输入 = 一个<strong>长度固定（SOL=115）的 <code>double</code> 向量</strong>，每个位置是一个子因子（sub-alpha）的输出，
-<strong>顺序写死</strong>；输出 = 单个 <code>double</code>（预测的 forward mid 收益，bp）。Python 训练端与 C++ 推理端
-<strong>必须逐位对齐</strong>，靠 <code>gen_lgbm_cfg.py</code> 从训练结果自动生成 C++ 配置来保证不错位。</p>
-<hr />
-<h2 id="1">1. 整体架构：两个并行、必须对齐的世界</h2>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>Python 训练端 (<code>sol_alpha/</code>)</th>
-<th>C++ 推理端 (<code>crypto-ts-alpha/</code>)</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>作用</td>
-<td>读因子 CSV → 拼特征矩阵 → 训练 → 存模型</td>
-<td>实盘/回测逐秒算因子 → 喂模型 → 出 alpha</td>
-</tr>
-<tr>
-<td>输入</td>
-<td><code>X = np.ndarray (n_rows, 115)</code> float64</td>
-<td><code>std::vector&lt;double&gt; values_</code>，长度 115</td>
-</tr>
-<tr>
-<td>模型产物</td>
-<td><code>booster.txt</code>(LGBM) / <code>weights.json</code>(MLP)</td>
-<td>运行时加载上述产物</td>
-</tr>
-<tr>
-<td>入口</td>
-<td><code>sol_alpha/train.py</code></td>
-<td><code>crypto-ts-alpha</code> 的 <code>genaAC</code> + cfg json</td>
-</tr>
-</tbody>
-</table>
-<p>关键 key：因子 CSV 列名形如 <code>Sr8Alpha4_6_a10_b10_0</code> = <code>因子名_参数_输出索引</code>，这是连接两端的纽带。</p>
-<hr />
-<h2 id="2-input">2. 输入（input）定义</h2>
-<h3 id="c-vectordouble">C++ 端 —— 扁平 <code>vector&lt;double&gt;</code></h3>
-<p><code>src/lgbm_combine_alpha.h</code> 的 <code>calculate_value()</code>（每个 1s bar 触发）：</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #B00040">uint32_t</span><span style="color: #bbbbbb"> </span>iw<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #666666">0</span>;
-<span style="color: #008000; font-weight: bold">for</span><span style="color: #bbbbbb"> </span>(<span style="color: #008000; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">auto</span><span style="color: #666666">&amp;</span><span style="color: #bbbbbb"> </span>alpha<span style="color: #bbbbbb"> </span><span style="color: #666666">:</span><span style="color: #bbbbbb"> </span>alphas_)<span style="color: #bbbbbb"> </span>{<span style="color: #bbbbbb">          </span><span style="color: #3D7B7B; font-style: italic">// 按 config 里 alpha_names 顺序</span>
-<span style="color: #bbbbbb">    </span><span style="color: #008000; font-weight: bold">for</span><span style="color: #bbbbbb"> </span>(<span style="color: #B00040">uint32_t</span><span style="color: #bbbbbb"> </span>i<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #666666">0</span>;<span style="color: #bbbbbb"> </span>i<span style="color: #bbbbbb"> </span><span style="color: #666666">&lt;</span><span style="color: #bbbbbb"> </span>alpha<span style="color: #666666">-&gt;</span>get_shape()[<span style="color: #666666">0</span>];<span style="color: #bbbbbb"> </span><span style="color: #666666">++</span>i,<span style="color: #bbbbbb"> </span><span style="color: #666666">++</span>iw)
-<span style="color: #bbbbbb">        </span>values_[iw]<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span>alpha<span style="color: #666666">-&gt;</span>get_value()[i];<span style="color: #bbbbbb"> </span><span style="color: #3D7B7B; font-style: italic">// 拼进 values_</span>
-}
-LGBM_BoosterPredictForMatSingleRowFast(handler,<span style="color: #bbbbbb"> </span>values_.data(),<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>len,<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>value_);
-</code></pre></div>
-
-<ul>
-<li>数据结构：<code>std::vector&lt;double&gt; values_</code>，长度 = <code>ncols</code>（SOL=115）。</li>
-<li>每个 feature = 一个子因子的 <code>get_value()</code>。多数因子 <code>get_shape()={1}</code>；少数多输出：
-  <code>MagnitudeAlpha={6}</code>、<code>PriceBase={7}</code>、<code>BarOHLCV={7}</code>、<code>Price={3}</code>，占连续多个位置。</li>
-<li><strong>顺序 = config 里 <code>alpha_names</code> 数组顺序</strong>；<code>ncols</code> 必须 == 所有子因子 <code>get_shape()[0]</code> 之和，
-  否则 MLP / ClsRegMix 在 <code>on_start</code> 直接 throw。</li>
-</ul>
-<h3 id="python-n-115">Python 端 —— <code>(n, 115)</code> 矩阵</h3>
-<p><code>sol_alpha/data/features.py</code>：
-- 从 <code>/share/crypto_hf_alpha/{sr4,sr5,sr8,sr9}/&lt;ukey&gt;_&lt;日期&gt;.csv</code> 读各目录因子，按 <code>timestamp</code>
-  inner-join 成宽表（<code>load_factor_panel</code>）。
-- <code>feature_columns()</code>：除 <code>timestamp</code> 和原始价格列 <code>Price_0/1/2</code> 外的所有列 → 正好 115 个。
-- <code>to_matrix()</code> → <code>X = df[cols].to_numpy(float64)</code>。
-- <code>sanitize()</code>：<code>inf→NaN</code>，NaN 当缺失值喂 LGBM（不丢行）。
-- <code>mid = Price_1 = (bid+ask)/2</code>（已确认，OOS std=1.313bp 与报告吻合）；<code>Price_0</code>=末笔成交、
-  <code>Price_2</code>=microprice，原始价格水平列不作特征。</p>
-<hr />
-<h2 id="3-output">3. 输出（output）定义</h2>
-<h3 id="c-1-double">C++ 端：统一接口，组合模型都输出 1 个 double</h3>
-<p>每个 alpha 实现 <code>get_shape()</code> / <code>get_value()</code> / <code>get_timestamp()</code>。三种组合模型：</p>
-<table>
-<thead>
-<tr>
-<th>模型 (Factory 名)</th>
-<th>文件</th>
-<th><code>value_</code> 含义</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>LGBM</strong> (<code>lgbm</code>)</td>
-<td><code>lgbm_combine_alpha.h</code></td>
-<td>booster 直接回归预测（bp）</td>
-</tr>
-<tr>
-<td><strong>MLP</strong> (<code>mlp</code>)</td>
-<td><code>MLPAlpha.h</code></td>
-<td>3 层 BN+GELU → 7 类 softmax → <code>probs · centers_bp</code>（期望解码 bp）</td>
-</tr>
-<tr>
-<td><strong>ClsRegMix</strong> (<code>cls_reg_mix</code>)</td>
-<td><code>ClsRegMixAlpha.h</code></td>
-<td>两段全期望 <code>Σ_k P(k\|X)·reg_k(X)</code>，跳过 flat 类</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>关键差异</strong>：MLP 推理前多一步 StandardScaler 标准化 + NaN→训练中位数填充
-（<code>MLPAlpha.h</code> 中，scaler 参数存于 <code>weights.json</code>）。LGBM 树模型原生吃 NaN、不需要标准化。
-换模型时勿把 LGBM 的原始 NaN 直接喂进 MLP。</p>
-</blockquote>
-<h3 id="python-y">Python 端：训练目标 y</h3>
-<p><code>train.py</code>：<code>y_bp = T.to_bp(T.forward_mid_return(mid))</code> —— 未来 mid 收益（bp），用 <code>Price_1</code> 算。</p>
-<hr />
-<h2 id="4-factory-srcfactorycc">4. Factory 已注册的组合模型（<code>src/Factory.cc</code>）</h2>
-<p><code>demo, PriceBase, BarOHLCV, lgbm, lgbm_clf, ts_lgbm_clf, magnitude, cls_reg_mix, ts_cls_reg_mix,
-mlp, ts_mlp, ts_ens3, ult_lgbm, ...</code> + 160+ 个单因子（CDiff<em>, Sr4</em>, Sr5<em>, Sr8</em>, Sr10<em>, Sr12</em> 等）。
-<code>ts_*</code> 前缀 = 时序版（<code>BaseTSAlpha</code>），非 <code>ts_</code> = <code>BaseAlpha</code>。</p>
-<hr />
-<h2 id="5-feature">5. 做 feature 实验的三种方式</h2>
-<h3 id="a-115">A. 从现有 115 个增删/筛选（最常用，改配置即可）</h3>
-<ul>
-<li>Python：config yaml 里 <code>exclude_features: [...]</code> 丢列；或改 <code>sr_dirs</code> 控制读哪些目录。</li>
-<li>C++：改 cfg json 的 <code>alpha_names</code> 数组 + <code>alphas</code> 参数字典，同步改 <code>ncols</code>。</li>
-<li>⚠️ 两端顺序必须完全一致 → <strong>不要手改</strong>，用 <code>crypto-ts-alpha/cfg/gen_lgbm_cfg.py</code>：
-  读训练产出的 <code>results.json</code> 的 <code>feature_names</code>，解析 <code>Sr8Alpha4_6_a10_b10_0 → (key,{a:10,b:10})</code>
-  自动生成对齐的 C++ json。错位不会报错，但预测会全乱。</li>
-</ul>
-<h3 id="b">B. 调因子参数（窗口等）</h3>
-<ul>
-<li>两端 config 改对应因子的参数字典（如 <code>"Sr5Atr": {"n": 300}</code> → <code>{"n": 600}</code>）。</li>
-<li>同一因子类不同参数 = 不同 feature 列（列名 <code>_a10_b10</code> 会变），需重新生成训练 CSV。</li>
-</ul>
-<h3 id="c">C. 加全新因子（最重，必须双端实现并对齐）</h3>
-<ol>
-<li>C++：仿 <code>DemoAlpha.h/.cc</code> 写 <code>BaseAlpha</code> 子类（<code>on(各事件)</code> + <code>get_shape/get_value/get_timestamp</code>），
-   在 <code>Factory.cc</code> 注册、<code>AllFactor.h</code> include。</li>
-<li>Python：让其成为训练 CSV 一列；派生因子可直接在 <code>features.py</code> 加（如 <code>add_magnitude_features</code>）。</li>
-<li>验证对齐：跑 <code>validate_*_cpp.py</code>（<code>validate_magnitude_cpp.py</code> / <code>validate_mlp_cpp.py</code> /
-   <code>validate_crm_cpp.py</code> / <code>validate_clf7_cpp.py</code>），逐值比对两端，必须一致。</li>
-</ol>
-<blockquote>
-<p>双端派生因子最佳模板：<code>features.py::add_magnitude_features</code>（Python）↔ <code>MagnitudeAlpha.h</code>（C++），
-注释逐行标注如何对齐 pandas 的 rolling / min_periods / fillna。</p>
-</blockquote>
-<hr />
-<h2 id="6">6. 关键风险点 / 注意事项</h2>
-<ul>
-<li><strong>两端对齐是头号风险</strong>：feature 顺序/参数/NaN 处理任一不一致，预测就失真且不报错。改 feature 后
-  务必跑 <code>validate_*_cpp.py</code>。</li>
-<li><strong>MLP vs LGBM 的预处理差异</strong>：MLP 需要 StandardScaler + 中位数填充，LGBM 不需要。</li>
-<li><strong>NaN 语义</strong>：LGBM 把 NaN 当缺失值（保留行）；MLP 用训练中位数填充；某些因子（如
-  <code>Sr5EmaTrade_a10_b10</code>）在某些日期整列 NaN。</li>
-<li><strong>C++ 推理是逐 1s bar 单行预测</strong>（<code>PredictForMatSingleRowFast</code>），不是批量。</li>
-</ul>
-<hr />
-<h2 id="7-packageonnx-2026-06-14">7. 统一推理 package（ONNX 化）可行性调研（2026-06-14）</h2>
-<blockquote>
-<p>目标：开一个<strong>新 repo</strong>，写一个统一 package / 接口，让同事 <code>import</code> 就能复用我训练的
-MLP / 其它深度模型，<strong>而不必每换一种结构就在 C++ 里手写一遍 forward</strong>。
-本节为该需求的可行性调研结论。</p>
-<p><strong>⚠️ 设计铁律（融入而非替换）</strong>：本工具<strong>必须基于、增强</strong> senior 既有的 <code>crypto-ts-alpha</code> +
-<code>crypto-ts-strategy</code> 范式——<strong>绝不替换/推翻</strong> senior 的东西，而是融入使其更强，并让其他人能
-<strong>适配她（senior）现有的 <code>BaseAlpha</code>/<code>Factory</code> 范式</strong>。下文所有"通用 onnx alpha"都是<strong>新增、
-与现有 bespoke 实现并存</strong>的家族新成员；现有 <code>mlp</code>/<code>lgbm</code>/<code>cls_reg_mix</code> 一律<strong>保留照常工作</strong>，
-crypto-ts-strategy 的消费路径（<code>.so</code>/<code>genaAC</code>/cfg）<strong>不变</strong>，新范式只是多一个可选 alpha 类型。</p>
-</blockquote>
-<h3 id="70">7.0 一句话结论</h3>
-<p><strong>能实现，ONNX 就是为这个场景设计的标准解法。</strong> 训练端任意 PyTorch 架构 → 导出一个
-<code>.onnx</code> → Python(<code>onnxruntime</code>) 与 C++(<code>onnxruntime</code> C++ API) 加载<strong>同一个文件</strong>推理；
-<strong>加新架构（CNN/LSTM/Transformer）时 C++ 端零改代码，只换一个 <code>.onnx</code> + schema</strong>。
-预处理（StandardScaler + NaN 填充）可烤进 ONNX 图，让产物完全自包含。</p>
-<p>唯一 ONNX <strong>不能</strong>替你解决的是<strong>特征向量组装顺序对齐</strong>（第 2 节那个头号风险）——所以 package
-必须把"特征 schema（名字+顺序）"作为元数据和模型绑在一起、并在加载时校验（见 7.5）。</p>
-<h3 id="71">7.1 为什么现状不可扩展（痛点精确定位）</h3>
-<p>当前 <a href="../../hfcrypto_junjie/crypto-ts-alpha/src/MLPAlpha.h">MLPAlpha.h</a> 是<strong>纯手写 C++ forward</strong>：
-<code>Linear → 融合 BN(</code>s<em>bn_scale+bn_shift<code>) → GELU(erf 版) → 输出层 → softmax → center 解码</code>
-全是 <code>std::vector&lt;double&gt;</code> 手撸循环（<code>calculate_value()</code> lines 177-251）。其结构必须和 Python
-训练端</em><em>逐行对齐</em>*。后果：</p>
-<ul>
-<li><strong>每换一种模型结构，就要在 C++ 重写一遍 forward</strong>——这正是"让同事用任意深度模型"的核心障碍。
-  现在 repo 里已经为此并行养了三套 bespoke C++ 实现：<code>lgbm</code> / <code>mlp</code> / <code>cls_reg_mix</code>。
-  （目标是<strong>新增</strong>一条通用 ONNX 路径<strong>融入增强</strong>这套框架，<strong>不是删掉这三套</strong>——它们照常保留工作。）</li>
-<li>已确认<strong>好消息</strong>：<code>calculate_value()</code> 在"特征组装完之后"的数学核心，对 <code>BaseAlpha</code>/事件系统
-  <strong>零依赖</strong>，抽出来很容易（耦合点只有 <code>on_start</code> 装子因子、<code>on(bar_t)</code> 触发、<code>get_value()</code> 取值）。</li>
-</ul>
-<h3 id="72-bundle-runtime">7.2 推荐架构：「模型 bundle + 双语言薄 runtime」</h3>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>            训练端 (Python, 同事/我)
-                    │  export()  ← 唯一需要&quot;懂模型&quot;的地方
-                    ▼
-        ┌─────────────────────────────┐
-        │   模型 bundle (版本化产物)    │   ← 单一事实来源 (single source of truth)
-        │   model.onnx  + schema.json │
-        └─────────────────────────────┘
-            │                       │
-   import &amp; predict            link &amp; predict
-            ▼                       ▼
-   Python runtime (onnxruntime)   C++ runtime (onnxruntime C++ API)
-   研究/回测                       新增一个&quot;通用 onnx alpha&quot;作为新成员,
-                                   注册进 Factory, 与现有 mlp/cls_reg_mix 并存
-</code></pre></div>
-
-<p>三个组件：
-1. <strong>bundle</strong>：版本化的模型产物（<code>.onnx</code> + <code>schema.json</code>），跨语言、自包含。
-2. <strong>薄 runtime</strong>（两套，但都只是 onnxruntime 的封装）：Python 包 + C++ 库，<strong>对外都是同一个
-   <code>predict(features) -&gt; double</code> 语义</strong>。runtime 不懂模型结构，只负责喂张量、取结果、校验 schema。
-3. <strong>export 助手</strong>（训练端）：<code>export(torch_model, feature_schema, scaler) -&gt; bundle</code>，是
-   <strong>唯一</strong>需要懂模型/框架的地方，把"标准化"这件事收口到一个函数。</p>
-<p>这样"同事 import 就能用任意深度模型"成立：同事训练任意 torch 模型 → 调 <code>export()</code> → 发一个
-bundle → 消费端代码一行不改。</p>
-<h3 id="73-bundle">7.3 bundle 里到底装什么</h3>
-<table>
-<thead>
-<tr>
-<th>文件</th>
-<th>内容</th>
-<th>解决什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>model.onnx</code></td>
-<td>计算图（<strong>预处理烤进去</strong>：NaN→median 填充 + StandardScaler + 网络 + softmax + center 解码）</td>
-<td>架构无关、跨语言</td>
-</tr>
-<tr>
-<td><code>schema.json</code></td>
-<td><code>feature_names</code>（<strong>有序</strong>）、<code>input_dim</code>、各子因子 <code>get_shape</code>、output 含义/单位(bp)、<code>model_id</code>、<code>version</code>、训练 commit</td>
-<td>特征对齐（单一事实来源，新范式下可选简化 <code>gen_lgbm_cfg.py</code> 双向手维护）、可追溯</td>
-</tr>
-</tbody>
-</table>
-<p>关键设计：<strong>特征顺序写进 bundle 的 schema，而不是散落在 C++ cfg 和 Python config 两处</strong>。现有
-<a href="../../hfcrypto_junjie/crypto-ts-alpha/cfg/gen_lgbm_cfg.py">gen_lgbm_cfg.py</a> 做的"从 <code>results.json</code>
-的 <code>feature_names</code> 反解出 C++ alpha 参数"这件事，未来可由通用 onnx alpha 直接读 bundle 的
-<code>schema.feature_names</code> 完成——单一事实来源，错位无处藏身。（现有 <code>gen_lgbm_cfg.py</code> 路径<strong>保留照常
-工作</strong>，新范式下只是<strong>可选简化</strong>，不强制删。）</p>
-<h3 id="74">7.4 三种消费场景 × 对应实现（按你拍板的"消费端语言"选）</h3>
-<table>
-<thead>
-<tr>
-<th>场景</th>
-<th>Python runtime</th>
-<th>C++ runtime</th>
-<th>工作量</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>两者都要</strong>（默认假设：训练Python+实盘C++）</td>
-<td>pip 包，<code>onnxruntime</code> 一层封装</td>
-<td><strong>新增</strong>一个<strong>通用 <code>onnx</code> alpha</strong>（仿 <code>MLPAlpha</code> 的 <code>BaseAlpha</code> 适配壳、注册进 <code>Factory</code> 与现有并存，内部不再手写 forward，改成 <code>Ort::Session.Run</code>）+ onnxruntime C++ 依赖</td>
-<td>中：两套薄 runtime，共享一个 bundle</td>
-</tr>
-<tr>
-<td>仅 Python</td>
-<td>同上</td>
-<td>—</td>
-<td>小：几乎只是 onnxruntime + schema 校验</td>
-</tr>
-<tr>
-<td>仅 C++</td>
-<td>仅 export 脚本</td>
-<td>同上通用 onnx alpha</td>
-<td>中：重点在 C++ 集成 + parity</td>
-</tr>
-</tbody>
-</table>
-<p>C++ 单行推理范式（每个 1s bar）：进程启动时建一次 <code>Ort::Session</code>（复用），每 bar 组装
-<code>1×N</code> 输入张量 → <code>session.Run</code> → 取标量输出。<strong>1s bar 预算极其宽裕，onnxruntime 的 per-call
-开销（微秒~数十微秒级）对你这里完全不是问题</strong>（不是 sub-ms 的 taking 决策路径）。</p>
-<h3 id="75-onnx">7.5 ONNX 关键技术细节与坑</h3>
-<ol>
-<li><strong>精度对齐（头号坑，必须先定）</strong>
-   - 现状 C++ <strong>全程 <code>double</code></strong>（<a href="../../hfcrypto_junjie/crypto-ts-alpha/src/MLPAlpha.h#L99">MLPAlpha.h:99-129</a>）；
-     而 PyTorch 训练几乎肯定是 <strong>float32</strong>，<code>torch.onnx.export</code> 默认导出 <strong>float32 图</strong>，onnxruntime
-     默认按 float32 跑。
-   - 推论：<strong>现在的 double C++ 推理本来就和 float32 训练不完全一致</strong>；改用 float32 ONNX 反而会让
-     C++ 推理<strong>更贴近训练真值</strong>。但代价是：历史报告里那些用 double C++ 算出来的数会<strong>轻微漂移</strong>。
-   - 两条路二选一：<ul>
-<li><strong>(a) float32 ONNX</strong>（推荐）：与训练一致、更快、生态全。验证时基准选 <strong>PyTorch float32 forward</strong>，
-   不是旧 double C++。</li>
-<li><strong>(b) float64 ONNX</strong>（把模型 cast double 再导）：与现有 double C++ 精确对齐、向后兼容历史数；
-   代价是略慢、部分算子/EP 的 double 覆盖较少。</li>
-</ul>
-</li>
-<li><strong>预处理烤进图</strong>：<code>NaN→median</code> 用 <code>Where(IsNaN(x), median, x)</code>（opset≥9），再
-   <code>(x-mean)/scale</code>（<code>Sub</code>/<code>Div</code>），都能进 ONNX 图。烤进去后 bundle 吃"原始特征"，消费端不可能漏做
-   预处理——比现状（C++ 里手写 scaler、LGBM 又不需要 scaler，容易喂错，见第 6 节）更稳。</li>
-<li><strong>center 解码也进图</strong>：<code>softmax · centers_bp</code> 用 <code>Softmax</code>+<code>MatMul</code>/<code>ReduceSum</code> 表达，使 onnx
-   输出直接就是 bp，runtime 真正零业务逻辑。</li>
-<li><strong>特征对齐 ONNX 管不了</strong>：见 7.3，靠 schema + 加载校验（<code>input_dim==Σget_shape</code> 不符就 throw，
-   沿用现有 <code>on_start</code> throw 的思路）。</li>
-<li><strong>多输出子因子</strong>：<code>magnitude={6}</code>/<code>PriceBase={7}</code> 等占连续多位，schema 里要记每个子因子的
-   <code>get_shape</code>，组装时按它展开（C++ 通用 alpha 复用现有 <code>for i in get_shape()[0]</code> 逻辑）。</li>
-</ol>
-<h3 id="76-lgbm-onnx">7.6 LGBM 要不要也走 ONNX（诚实取舍）</h3>
-<ul>
-<li>技术上<strong>可以</strong>：<code>onnxmltools.convert_lightgbm</code> 能转。</li>
-<li>但 <strong>LightGBM→ONNX 的树集成在 onnxruntime 里用 float32 阈值，和原生 LGBM 的 double 预测有
-  已知的小幅不一致</strong>；而本 repo <strong>已经原生链 <code>LightGBM/c_api.h</code></strong>（conan 里已有 <code>lightgbm</code> 包），
-  这条路是精确的。</li>
-<li>结论（做对的事优先）：<strong>深度模型走 ONNX（手写 forward 的痛点在这），LGBM 维持原生 c_api</strong>。
-  统一接口可以在"runtime 外壳"层做到（对外都是 <code>predict</code>），但底层 LGBM 不必硬塞进 ONNX 换来一个
-  需要反复验证的精度差。若坚持全统一，须把 LGBM→ONNX 的 parity 误差当独立验收项。</li>
-</ul>
-<h3 id="77">7.7 备选方案对比与取舍</h3>
-<table>
-<thead>
-<tr>
-<th>方案</th>
-<th>架构无关?</th>
-<th>跨语言?</th>
-<th>依赖重量</th>
-<th>取舍</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>A. ONNX bundle + 薄 runtime</strong> ✅推荐</td>
-<td>✅</td>
-<td>✅ Py+C++</td>
-<td>onnxruntime（中）</td>
-<td>命中全部诉求；需新增 onnxruntime 依赖 + 精度对齐</td>
-</tr>
-<tr>
-<td>B. 抽成 header-only <code>MLPInferenceEngine</code>（把现有手写 forward 抽包）</td>
-<td>❌ 仍要手写新结构</td>
-<td>C++为主</td>
-<td>零新依赖</td>
-<td>最省事，但<strong>不解决核心痛点</strong>；仅当同事永远只用这一种 MLP 形状才够</td>
-</tr>
-<tr>
-<td>C. TorchScript / libtorch</td>
-<td>✅</td>
-<td>Py+C++</td>
-<td>libtorch（<strong>很重</strong>，数百 MB）</td>
-<td>也能架构无关，但部署进 HFT C++ binary 太重，比 onnxruntime 笨</td>
-</tr>
-<tr>
-<td>D. gRPC/REST 推理微服务</td>
-<td>✅</td>
-<td>任意语言</td>
-<td>服务化</td>
-<td>多一跳网络+运维，<strong>不适合实盘内联</strong>；研究/批量可接受</td>
-</tr>
-<tr>
-<td>E. 纯 Python 包</td>
-<td>✅</td>
-<td>❌ 仅Py</td>
-<td>onnxruntime/torch</td>
-<td>同事全是 Python 才够；本 repo 实盘是 C++,不满足</td>
-</tr>
-</tbody>
-</table>
-<h3 id="78-repo-archetype">7.8 新 repo 目录结构建议（archetype）</h3>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>hf-model/                      # 新 repo (建议放 git.9th-tech.com 同内网)
-  pyproject.toml               # pip 可装
-  hfmodel/                     # Python runtime + export
-    __init__.py
-    bundle.py                  # 读写 bundle (model.onnx + schema.json), 版本/校验
-    export.py                  # export(torch_model, schema, scaler) -&gt; bundle (烤预处理进图)
-    predict.py                 # Predictor: load(bundle) -&gt; predict(features)-&gt;bp  (onnxruntime)
-    schema.py                  # FeatureSchema: 有序 feature_names + get_shape + 校验
-  cpp/                         # C++ runtime (header + 薄 .cc, 封装 onnxruntime C++ API)
-    include/hfmodel/predictor.h  # OnnxPredictor::load(bundle); run(span&lt;double&gt;)-&gt;double
-    src/predictor.cc
-    CMakeLists.txt / conanfile  # 依赖 onnxruntime (conan center 有, 或 vendored)
-  adapters/                    # 把 runtime 融入现有 crypto-ts-alpha 框架(增强,不改框架)
-    OnnxAlpha.h                # 通用 BaseAlpha 适配壳(新增,注册进 Factory,与 MLPAlpha/ClsRegMix 并存)
-  tests/
-    test_parity.py             # ONNX 输出 vs PyTorch float32 forward, 逐值
-    test_cpp_parity/           # C++ runtime 输出 vs Python, 逐值 (沿用 validate_*_cpp.py 思路)
-  examples/
-    train_and_export_mlp.py    # 同事照抄的最小例子
-</code></pre></div>
-
-<p>注：现 repo 用 conan（本机缓存已有 <code>eigen</code>/<code>lightgbm</code>/<code>rapidjson</code>/<code>fmt</code>/<code>spdlog</code> 等），新 repo
-沿用 conan 接 onnxruntime 最顺；onnxruntime 在 conancenter 有 recipe，或用官方预编译包 vendored。</p>
-<h3 id="79-parity">7.9 分阶段落地路线 + parity 验证（不可省）</h3>
-<ol>
-<li><strong>P0 训练侧（现成，不用还原 —— 已更正）</strong>：训练/导出代码完整存在于
-   <code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/</code>（<code>mlp_strong_120.py</code>/<code>export_mlp_weights_120.py</code>），
-   其 <code>output/mlp_strong_120/weights.json</code> 与 C++ 部署端 <a href="../../hfcrypto_junjie/crypto-ts-alpha/models/mlp_strong_120/weights.json">weights.json</a>
-   <strong>逐字节相同</strong>。故 P0 只是"加一个 onnx 导出脚本"，非从零重建。模型：120→256×3→7，融合BN，
-   GELU erf，centers 是<strong>收益尺度 ~1e-4 非 bp</strong>，勿被名字骗。详见 §8 实施计划。</li>
-<li><strong>P1 Python 闭环</strong>：<code>export()</code> 把该模型（含 scaler/median/center 解码）导成烤好预处理的 onnx；
-   <code>test_parity.py</code> 验 ONNX 输出 == PyTorch float32 forward（定 7.5 的精度基准）。</li>
-<li><strong>P2 C++ runtime</strong>：<strong>新增</strong>通用 <code>OnnxAlpha</code>（<code>BaseAlpha</code> 壳 + <code>Ort::Session</code>，注册进 <code>Factory</code>
-   与现有并存），逐值比对 Python runtime；再和现有 double <code>MLPAlpha</code> 比对，量化 float32 漂移（决定是否需 float64 图）。</li>
-<li><strong>P3 收口对齐</strong>：通用 alpha 直接读 bundle 的 <code>schema.feature_names</code> 组装特征（<code>gen_lgbm_cfg.py</code>
-   现状保留，新范式下可选简化双向手维护）；跑现有 <code>validate_*_cpp.py</code> 等价回归。</li>
-<li><strong>P4 推广</strong>：同事按 <code>examples/</code> 训练任意结构 → <code>export()</code> → 发 bundle → 实盘换 onnx 文件即用。</li>
-</ol>
-<h3 id="710">7.10 需要你拍板的决策点（权限流断了没问成，列在此）</h3>
-<ul>
-<li><strong>D1 消费端语言</strong>：Python研究+C++实盘两者都要（默认假设）/ 仅Python / 仅C++ —— 决定做几套 runtime。</li>
-<li><strong>D2 核心目标层级</strong>：架构无关（默认，止于深度模型）/ 连 LGBM 也统一进同一 predict（须接受 LGBM→ONNX
-  精度验收）/ 只把现状 MLP 标准化打包（先用 B 方案）。</li>
-<li><strong>D3 精度策略</strong>：float32 ONNX（推荐，贴训练，历史数会微漂）/ float64 ONNX（精确兼容旧 double C++）。</li>
-<li><strong>D4 新 repo 落点</strong>：内网 <code>git.9th-tech.com</code>（与现 repo 同源，方便同事拉）还是别处。</li>
-</ul>
-<h3 id="711">7.11 风险点清单</h3>
-<ul>
-<li><strong>协作铁律（融入而非替换）</strong>：必须基于、增强 senior 的 <code>crypto-ts-alpha</code>/<code>crypto-ts-strategy</code>；
-  新 onnx 路径与现有 bespoke <strong>并存</strong>、不破坏 strategy 消费路径（<code>.so</code>/<code>genaAC</code>/cfg 不变）——违背即方案作废。</li>
-<li><strong>特征对齐仍是头号风险</strong>：ONNX 只解决模型可移植，顺序/参数错位照样静默失真 → schema 单一事实来源 +
-  加载校验 + parity 测试，缺一不可。</li>
-<li><strong>精度漂移</strong>：见 D3；切 ONNX 后历史报告基准要重锚到 PyTorch float32，别和旧 double C++ 直接比数。</li>
-<li><strong>新增 onnxruntime 依赖</strong>：进 HFT C++ binary 需评估体积/EP；用 CPU EP、关多余 EP 以控体积与启动开销。</li>
-<li><strong>LGBM 精度差</strong>：若 D2 选"全统一"，LGBM→ONNX 的 float32 阈值误差须单列验收，否则维持原生 c_api。</li>
-<li><strong>训练侧现成（已更正）</strong>：完整 sol_alpha 在 <code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/</code>，
-  weights.json 与部署端逐字节相同，P0 不需重建——详见 §8 实施计划。</li>
-</ul>
-<hr />
-<h2 id="8-file-level-2026-06-14">8. 可执行实施计划（file-level，基于 2026-06-14 五路深挖实证）</h2>
-<blockquote>
-<p>第 7 节是可行性背景；本节是落地用的 file-level 计划。五个原本"拍脑袋"的假设已逐一对真实
-代码/工具/数据验证（带 file:line），故<strong>整体可行、低风险</strong>。</p>
-</blockquote>
-<h3 id="80">8.0 为什么"通"——五路实证</h3>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>原假设</th>
-<th>实证结论</th>
-<th>证据</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>C++ 接入要动框架</td>
-<td><strong>零改框架</strong>：strategy 只把 JSON 里 <code>ts_mlp→ts_onnx</code>；Factory 加 2 个 <code>if</code>；机制 <code>load_ts(repo,name,cfg)→dlopen lib*.so→factory-&gt;create</code></td>
-<td><code>HFTaking.cc:33-39</code>、<code>alpha_manager.h:23/102-109</code>、<code>Factory.cc:29-32</code></td>
-</tr>
-<tr>
-<td>2</td>
-<td>模型能否精确还原未知</td>
-<td><strong>能，已实测</strong>：PyTorch 复刻 vs 纯 double 参考，f64 max_abs=<strong>2.9e-17</strong>、f32=<strong>1.4e-8</strong></td>
-<td>2000 样本含 5% NaN</td>
-</tr>
-<tr>
-<td>3</td>
-<td>onnxruntime C++ 能否接入未知</td>
-<td><strong>能且轻</strong>：conancenter 有 <code>onnxruntime/1.18.1</code>（默认 CPU 静态），<code>conanfile.txt</code> 加一行、CMake 零改；单行推理微秒级</td>
-<td><code>conan search onnxruntime</code>、<code>CMakeLists.txt:10/26</code></td>
-</tr>
-<tr>
-<td>4</td>
-<td>训练侧缺失要从零还原（<strong>上一版最大误判</strong>）</td>
-<td><strong>不用还原</strong>：完整 <code>sol_alpha</code> 在 <code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/</code>，<code>weights.json</code> 与部署端<strong>逐字节相同</strong></td>
-<td><code>mlp_strong_120.py</code>、<code>export_mlp_weights_120.py</code></td>
-</tr>
-<tr>
-<td>5</td>
-<td>特征对齐契约不清</td>
-<td><strong>已固化</strong>：真实 115 子因子→120 列，唯一多输出 <code>magnitude={6}</code> 占 [114..119]，schema 就绪</td>
-<td><code>genaAC_sol_mlp120_val.json</code>、<code>MLPAlpha.h:66-67/181-196</code></td>
-</tr>
-</tbody>
-</table>
-<h3 id="81">8.1 架构落点（三个位置，全部加法）</h3>
-<table>
-<thead>
-<tr>
-<th>位置</th>
-<th>新增内容</th>
-<th>动他人代码?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>新 repo <code>hf-model/</code></strong>（同事 import 入口）</td>
-<td>Python <code>hfmodel</code>：<code>export()</code>/<code>Predictor</code>/<code>schema</code>+<code>bundle</code>；C++ ORT 薄封装；examples/文档</td>
-<td>全新，零触碰</td>
-</tr>
-<tr>
-<td><strong><code>crypto-ts-alpha/</code></strong>（融入点，纯新增）</td>
-<td><code>src/OnnxAlpha.h</code>+<code>src/TSOnnxAlpha.h</code>（新文件）；<code>Factory.cc</code> 加 2 个 <code>if</code>；<code>AllFactor.h</code> 加 2 个 include；<code>conanfile.txt</code> 加 <code>onnxruntime</code></td>
-<td>仅追加，旧 entry/链接不动</td>
-</tr>
-<tr>
-<td><strong><code>sol_alpha/</code></strong>（训练侧，纯新增）</td>
-<td><code>export_onnx_120.py</code>（torch→onnx+schema）；<code>validate_onnx_parity.py</code></td>
-<td>现有脚本不动</td>
-</tr>
-</tbody>
-</table>
-<h3 id="82-file-level-p0p5-gate">8.2 file-level 阶段（P0–P5，每阶段带验收 gate）</h3>
-<ul>
-<li><strong>P0 环境与基线锁定（~0.5d）</strong>：隔离 venv 装 <code>onnx onnxruntime</code>（dry-run 已验证可装；torch/sklearn 现成；<strong>不需</strong> skl2onnx/onnxmltools）；复核两端 weights.json 一致、<code>centers_unit="return"</code>。<strong>Gate</strong>：<code>import onnxruntime</code> 成功。</li>
-<li><strong>P1 训练端导出（~0.5d）</strong>：新增 <code>sol_alpha/export_onnx_120.py</code>，用精确复刻的 <code>MLPAlphaNet</code>（BN 用预融合 scale/shift 逐元素 affine，<strong>非 nn.BatchNorm</strong>；GELU erf；<code>W</code> 是 <code>[out,in]</code> 直接赋值不转置），把<strong>预处理+解码全烤进图</strong>：<code>Where(IsNaN(x) OR IsInf(x), median, x)→(x-mean)/scale→网络→Softmax→·centers</code>，<code>opset_version=17</code>。<strong>centers 尺度必须对齐生产 cfg 实际喂的那套（名义 bp vs return 差 1e4 倍）</strong>。<strong>Gate</strong>：导出 <code>.onnx</code>+<code>schema.json</code>，核对输入名/维=120、输出标量。</li>
-<li><strong>P2 Python parity（~1d）</strong>：新增 <code>validate_onnx_parity.py</code>，复用 <code>validate_mlp_cpp.py</code> 的 numpy-forward 作锚点；<strong>同一矩阵喂各端</strong>（不靠时间戳 join）三方比 <code>onnxruntime</code> vs <code>torch f32</code> vs <code>numpy-double(=C++ 语义)</code>；输入含真实 OOS 切片 + <strong>NaN 覆盖批</strong>（全有限/单 NaN/整列 NaN/inf）。容差：onnx↔torch <code>atol=1e-6</code>；onnx/torch↔double <code>atol≈1e-7~1e-6</code>+<code>Pearson&gt;0.9999</code>，按 NaN 桶分别报。<strong>Gate</strong>：onnx 对齐 double 不差于 torch-f32；NaN 桶 max|err| 与有限桶同量级。</li>
-<li><strong>P3 C++ 接入（~1.5d）</strong>：<code>conanfile.txt</code> 加 <code>onnxruntime/1.18.1</code>（经典 generator 下 CMake 零改；内网无包则 vendored 微软预编译兜底）；新增 <code>OnnxAlpha.h</code>（照抄 <code>MLPAlpha</code> 的 11 虚方法/子因子 load <code>:60-69</code>/iw 组装 <code>:181-196</code>，<strong>仅</strong>把手写 forward <code>:213-251</code> 换成 <code>Ort::Session.Run</code>，输入 float32 <code>{1,120}</code>，预处理已烤图故 C++ 零预处理）+ <code>TSOnnxAlpha.h</code>（同 <code>TSMLPAlpha</code>，<code>name "mlp"→"onnx"</code>、<code>weights→onnx_path</code>）；<code>AllFactor.h</code>/<code>Factory.cc</code> 各加 2 行（不碰旧 entry）：
-  <code>cpp
-  if (name=="onnx")    return std::make_unique&lt;OnnxAlpha&gt;();
-  if (name=="ts_onnx") return std::make_unique&lt;TSOnnxAlpha&gt;();</code>
-  <strong>Gate</strong>：<code>.so</code> 构建通过；<code>genaAC</code> 用 <code>ts_onnx</code> cfg 跑出 alpha。</li>
-<li><strong>P4 端到端 parity + strategy 联调（~1.5d）</strong>：加 C++ test harness 直接 <code>set values_</code> 再 <code>calculate_value</code>，对 P2 同一矩阵逐值比 <code>OnnxAlpha</code> vs <code>MLPAlpha</code>；复制 <code>HFTaking_sol_mlp120_return.json</code> 把 <code>name ts_mlp→ts_onnx</code>、<code>weights→onnx_path</code> 跑 strategy。<strong>Gate</strong>：与现状 <code>ts_mlp</code> 逐值对齐达标、strategy 零代码改动跑通。</li>
-<li><strong>P5 抽 hf-model 通用 package + 推广（~2-3d）</strong>：把"懂模型/会 ORT"部分收口成 <code>hf-model</code>（Python <code>export()/Predictor/schema</code>；C++ session 封装抽出，<code>crypto-ts-alpha</code> 只留薄壳继承注册）；<code>examples/train_and_export.py</code>。<strong>Gate</strong>：换个玩具结构走 <code>export()→bundle→ts_onnx</code>，C++ <strong>零改代码</strong> 跑通（证明架构无关）。</li>
-</ul>
-<h3 id="83-parity">8.3 parity 验证策略（头号风险）</h3>
-<ul>
-<li><strong>黄金基准 = 实盘在跑的 double C++ <code>MLPAlpha</code></strong>。三方：<code>onnx</code>(f32)↔<code>torch</code>(f32) 近 bit 级；f32↔double 差异来自 256 项累加，属预期。</li>
-<li><strong>NaN 语义坑（最易踩）</strong>：ONNX <code>IsNaN</code> <strong>不捕 ±inf</strong>，而 C++ 用 <code>!isfinite</code> 把 inf 也当缺失 → 图里须 <code>IsNaN(x) OR IsInf(x)</code>。必造"整列 NaN/inf"输入断言。</li>
-<li>喂法：同一矩阵喂各端（C++ 加直喂 harness），逐值 abs 比，不用时间戳 join。</li>
-</ul>
-<h3 id="84">8.4 关键决策</h3>
-<p><strong>已定</strong>：P0 不重建训练侧；精度默认 <strong>f32</strong>（需逐 bit 兼容旧 double 时先 f64 图离线锚定再切 f32）；<strong>预处理烤进图</strong>；C++ 输入 <strong>float32</strong>；onnxruntime 走 <strong>conancenter</strong>（内网不通则 vendored）；<strong>LGBM 维持原生 c_api</strong>。
-<strong>待你拍（不阻塞 P0-P4）</strong>：D1 消费端语言（默认 Py+C++）/ D2 抽象层级（默认止于深度模型）/ D4 <code>hf-model</code> 落点（默认内网）/ <strong>centers 用名义 bp 还是 return</strong>（须确认生产 cfg 实喂哪套，差 1e4 倍）。</p>
-<h3 id="85">8.5 风险与回退</h3>
-<table>
-<thead>
-<tr>
-<th>风险</th>
-<th>回退</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>onnxruntime 内网 remote 无</td>
-<td>vendored 微软官方预编译 <code>.so</code>+头文件</td>
-</tr>
-<tr>
-<td>f32 漂移改历史报告数</td>
-<td>基准重锚 torch-f32；或 f64 图逐 bit 兼容</td>
-</tr>
-<tr>
-<td><code>.so</code> 体积 +~10MB</td>
-<td><code>shared=True</code> 独立 .so，或 minimal build 压 2-4MB</td>
-</tr>
-<tr>
-<td>多输出子因子错位</td>
-<td>schema 四道校验（顺序/shape/Σ=input_dim/iw 填满）+ parity NaN 桶</td>
-</tr>
-<tr>
-<td>centers 尺度搞错</td>
-<td>输出整体差 1e4 倍，parity 立即暴露</td>
-</tr>
-</tbody>
-</table>
-<h3 id="86">8.6 里程碑</h3>
-<ul>
-<li><strong>P0-P2（Python 闭环）≈ 2d</strong> → 即可演示"onnx 与现状逐值对齐"，<strong>最小可验证"通不通"</strong>。</li>
-<li><strong>P3-P4（C++ 接入+端到端 parity）≈ 3d</strong>（含 conan 首次构建、harness）。</li>
-<li><strong>P5（抽通用 package+文档）≈ 2-3d</strong>。合计约 <strong>7-8 工作日</strong> 到可推广。</li>
-</ul>
-<h3 id="87">8.7 关键文件索引</h3>
-<ul>
-<li>C++ 接口/Factory：<code>crypto-def …/crypto/components/{alpha,interface,context,base}.h</code>；<code>crypto-ts-alpha/src/{Factory.cc,Factory.h,AllFactor.h}</code></li>
-<li>范本 alpha：<code>crypto-ts-alpha/src/{MLPAlpha.h,TSMLPAlpha.h,MagnitudeAlpha.h}</code></li>
-<li>strategy 消费：<code>crypto-ts-strategy/src/{HFTaking.cc:33-39,SignalExecution.cc:74,HFMaking.cc:30}</code>；cfg <code>crypto-ts-strategy/cfg/runner_cfg/HFTaking_sol_mlp120_return.json</code></li>
-<li>构建：<code>crypto-ts-alpha/{CMakeLists.txt,conanfile.txt}</code></li>
-<li><strong>训练侧（关键新发现）</strong>：<code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/{mlp_strong_120.py,export_mlp_weights_120.py,validate_mlp_cpp.py,compare_cpp_py_120.py,data/features.py,output/mlp_strong_120/weights.json}</code></li>
-<li>真实特征契约：<code>crypto-ts-alpha/cfg/genaAC_sol_mlp120_val.json</code>（115 子因子→120 列）</li>
-</ul>
-    </article>
-  </section>
-  <section class="report" id="hfcrypto-onnx-demo">
-    <header class="report-header">
-      <div class="report-group-tag" style="color:#0550ae">HF Crypto · SOL</div>
-      <h1>onnx V1 demo</h1>
-      <p class="subtitle">mlp_strong_120 接入 onnxalpha 完整操作步骤</p>
-    </header>
-    <article class="markdown-body">
-<h1 id="onnxalpha-demo-hfcrypto_onnx-mlp_strong_120">onnxalpha 接入 DEMO —— 从 hfcrypto_onnx 把 mlp_strong_120 接进来</h1>
-<blockquote>
-<p><strong>你来操作</strong>，每一步都有：① 做什么 ② 命令(可直接粘) ③ ✅ 期望看到什么。
-视角 = <strong>全新使用者</strong>：只把 <code>onnxalpha</code> 当一个 pip 装好的外部包用，不碰它的源码。
-目标 = 最后能成功：产出你自己的 <code>bundle</code> + 验证 <code>max|err|≈1e-10</code> + 跑通部署接入。</p>
-<p><strong>全程工作目录</strong> = <code>/home/samson/hfcrypto_onnx</code>（除非某步另说）。
-产物都放在新建的 <code>onnx_integration/</code> 下，<strong>不碰 crypto-ts-alpha / crypto-ts-strategy 一行</strong>。</p>
-</blockquote>
-<hr />
-<h2 id="30">它们的关系（先看懂，30 秒）</h2>
-<ul>
-<li><code>onnxalpha</code>：一个<strong>包</strong>。功能 = 把模型权重 → 自包含 <code>bundle</code>（<code>model.onnx</code>+<code>schema.json</code>）；并能加载 bundle 做推理。</li>
-<li>你这个 repo：有训练好的 MLP 权重 <code>mlp_strong_120/weights.json</code> + 子因子顺序 cfg。</li>
-<li><strong>接入 = 用 onnxalpha 这个包，把你的权重导成 bundle。</strong> C++ 那边用全队共享的 <code>libonnxalpha.so</code>，你只产出 bundle。</li>
-</ul>
-<hr />
-<h2 id="step-0-onnxalpha">Step 0 — 建一个干净环境 + 装 onnxalpha</h2>
-<p><strong>做什么</strong>：建一个<strong>全新的</strong> Python 环境（不依赖任何现成 env），把 onnxalpha 当外部包装进去。
-它会自动从 PyPI 拉 numpy/onnx/onnxruntime/scipy。下面两种建环境方式，<strong>挑你机器上有的那个</strong>。</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008000">cd</span><span style="color: #bbbbbb"> </span>/home/samson/hfcrypto_onnx
-</code></pre></div>
-
-<p><strong>方式 A — 有 conda / micromamba（你终端 <code>(base)</code> 提示符就说明有）</strong></p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>conda<span style="color: #bbbbbb"> </span>create<span style="color: #bbbbbb"> </span>-y<span style="color: #bbbbbb"> </span>-n<span style="color: #bbbbbb"> </span>onnx_demo<span style="color: #bbbbbb"> </span><span style="color: #19177C">python</span><span style="color: #666666">=3</span>.10
-conda<span style="color: #bbbbbb"> </span>activate<span style="color: #bbbbbb"> </span>onnx_demo
-pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span>--upgrade<span style="color: #bbbbbb"> </span>pip
-pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;git+ssh://git@git.9th-tech.com/samson/onnx_junjie.git&quot;</span>
-</code></pre></div>
-
-<p><strong>方式 B — 只有系统 python3</strong></p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python3<span style="color: #bbbbbb"> </span>-m<span style="color: #bbbbbb"> </span>venv<span style="color: #bbbbbb"> </span>~/.venvs/onnx_demo
-<span style="color: #008000">source</span><span style="color: #bbbbbb"> </span>~/.venvs/onnx_demo/bin/activate
-pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span>--upgrade<span style="color: #bbbbbb"> </span>pip
-pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;git+ssh://git@git.9th-tech.com/samson/onnx_junjie.git&quot;</span>
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：末尾 <code>Successfully installed onnxalpha-0.1.0 numpy-... onnxruntime-... ...</code>
-（onnxalpha 连同它的依赖一并装好）。</p>
-<blockquote>
-<p>之后每开新终端要用，先 <code>conda activate onnx_demo</code>（方式 A）或
-<code>source ~/.venvs/onnx_demo/bin/activate</code>（方式 B）激活这个环境。</p>
-</blockquote>
-<p><strong>验证装好了</strong>：</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python<span style="color: #bbbbbb"> </span>-c<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;import onnxalpha; print(&#39;onnxalpha at&#39;, onnxalpha.__file__)&quot;</span>
-onnxalpha<span style="color: #bbbbbb"> </span>info
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>包内自带 bundle(1 个):
-  - mlp_strong_120
-</code></pre></div>
-
-<blockquote>
-<p>🔁 <strong>内网版</strong>：内网若装不上 git（连不上 PyPI 拉依赖），改用离线 wheel：
-把 <code>onnx_junjie/third_party/wheels/</code> 拷到内网，<code>pip install --no-index --find-links wheels onnxalpha</code>。
-装完一样 <code>onnxalpha info</code> 能看到。</p>
-</blockquote>
-<hr />
-<h2 id="step-1">Step 1 — 建接入工作区 + 准备两个输入</h2>
-<p><strong>做什么</strong>：onnxalpha 导出需要两样东西：① 权重 json ② 子因子顺序 cfg（顶层是 <code>{ukey, alpha_names, alphas}</code>）。
-权重你 repo 里现成；子因子 cfg 你 repo 里<strong>嵌在</strong> <code>genaAC_sol_mlp120_val.json</code> 的 <code>alpha_cfg.ts_mlp</code> 下，抽出来即可。</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>mkdir<span style="color: #bbbbbb"> </span>-p<span style="color: #bbbbbb"> </span>onnx_integration/bundles
-
-<span style="color: #3D7B7B; font-style: italic"># ① 权重(现成,只是记下路径)</span>
-ls<span style="color: #bbbbbb"> </span>-l<span style="color: #bbbbbb"> </span>crypto-ts-alpha/models/mlp_strong_120/weights.json
-
-<span style="color: #3D7B7B; font-style: italic"># ② 抽出子因子 cfg → 存成 onnxalpha 要的顶层格式</span>
-python<span style="color: #bbbbbb"> </span>-c<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;import json; c=json.load(open(&#39;crypto-ts-alpha/cfg/genaAC_sol_mlp120_val.json&#39;)); json.dump(c[&#39;alpha_cfg&#39;][&#39;ts_mlp&#39;], open(&#39;onnx_integration/alpha_cfg_mlp_strong_120.json&#39;,&#39;w&#39;), indent=2); print(&#39;done&#39;)&quot;</span>
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：<code>done</code>，并生成 <code>onnx_integration/alpha_cfg_mlp_strong_120.json</code>。</p>
-<p><strong>验证抽对了</strong>：</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python<span style="color: #bbbbbb"> </span>-c<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;import json; a=json.load(open(&#39;onnx_integration/alpha_cfg_mlp_strong_120.json&#39;)); print(&#39;顶层键:&#39;, list(a.keys())); print(&#39;alpha_names 个数:&#39;, len(a[&#39;alpha_names&#39;]), &#39;| ukey:&#39;, a.get(&#39;ukey&#39;))&quot;</span>
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：<code>顶层键: ['ukey', 'alpha_names', 'alphas']</code>（或顺序略不同但含这三个），<code>alpha_names 个数: 115</code>，<code>ukey: 110200132</code>。</p>
-<blockquote>
-<p>📌 <strong>这就是新人会卡的那个点</strong>（已替你解决）：onnxalpha 要顶层就是 <code>{ukey,alpha_names,alphas}</code>；
-你 repo 把它包在 <code>alpha_cfg.ts_mlp</code> 里。上面那行 <code>json.dump</code> 就是把它"解包"出来。</p>
-</blockquote>
-<hr />
-<h2 id="step-2-bundle-onnxalpha">Step 2 — 导出你自己的 bundle（只用 onnxalpha 的命令行）</h2>
-<p><strong>做什么</strong>：用 onnxalpha 的 <code>export</code> 子命令，把权重 + 子因子 cfg → bundle。</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>onnxalpha<span style="color: #bbbbbb"> </span><span style="color: #008000">export</span><span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
-<span style="color: #bbbbbb">  </span>--weights<span style="color: #bbbbbb">   </span>crypto-ts-alpha/models/mlp_strong_120/weights.json<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
-<span style="color: #bbbbbb">  </span>--alpha-cfg<span style="color: #bbbbbb"> </span>onnx_integration/alpha_cfg_mlp_strong_120.json<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
-<span style="color: #bbbbbb">  </span>--out<span style="color: #bbbbbb">       </span>onnx_integration/bundles/mlp_strong_120<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
-<span style="color: #bbbbbb">  </span>--model-id<span style="color: #bbbbbb">  </span>mlp_strong_120
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：<code>已导出 bundle 到 onnx_integration/bundles/mlp_strong_120</code>。</p>
-<p><strong>验证 bundle</strong>：</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>ls<span style="color: #bbbbbb"> </span>-l<span style="color: #bbbbbb"> </span>onnx_integration/bundles/mlp_strong_120/<span style="color: #bbbbbb">          </span><span style="color: #3D7B7B; font-style: italic"># 应有 model.onnx + schema.json</span>
-onnxalpha<span style="color: #bbbbbb"> </span>info<span style="color: #bbbbbb"> </span>--bundle<span style="color: #bbbbbb"> </span>onnx_integration/bundles/mlp_strong_120
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：<code>输入维度 : 120</code>、<code>子因子数 : 115</code>、<code>输出单位 : return</code>、<code>分类数 : 7</code>。</p>
-<hr />
-<h2 id="step-3-bundle">Step 3 — 验证 bundle 推理正确（对包内黄金参考）</h2>
-<p><strong>做什么</strong>：用 onnxalpha 加载 bundle 推理，和它自带的 numpy 黄金参考逐值比，证明导出没出错（含 NaN/inf）。</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>cat<span style="color: #bbbbbb"> </span>&gt;<span style="color: #bbbbbb"> </span>onnx_integration/verify.py<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&lt;&lt;&#39;PY&#39;</span>
-<span style="color: #BA2121">import numpy as np</span>
-<span style="color: #BA2121">import onnxalpha as oa</span>
-<span style="color: #BA2121">from onnxalpha import load_weights, reference_forward</span>
-
-<span style="color: #BA2121">W = &quot;crypto-ts-alpha/models/mlp_strong_120/weights.json&quot;</span>
-<span style="color: #BA2121">B = &quot;onnx_integration/bundles/mlp_strong_120&quot;</span>
-
-<span style="color: #BA2121">w = load_weights(W)</span>
-<span style="color: #BA2121">p = oa.Predictor.load(B)</span>
-
-<span style="color: #BA2121">rng = np.random.RandomState(0)</span>
-<span style="color: #BA2121">X = rng.randn(256, 120).astype(np.float64)</span>
-<span style="color: #BA2121">X[1, 3:8] = np.nan      # NaN 行</span>
-<span style="color: #BA2121">X[2, 50]  = np.inf       # inf 行</span>
-
-<span style="color: #BA2121">got  = p.predict(X)               # onnxalpha 走 onnxruntime</span>
-<span style="color: #BA2121">gold = reference_forward(X, w)    # 包自带 numpy-double 黄金参考</span>
-<span style="color: #BA2121">err  = np.abs(got - gold).max()</span>
-<span style="color: #BA2121">pear = np.corrcoef(got, gold)[0, 1]</span>
-<span style="color: #BA2121">print(f&quot;max|err| = {err:.3e}   pearson = {pear:.6f}&quot;)</span>
-<span style="color: #BA2121">print(&quot;PASS&quot; if (err &lt; 1e-6 and pear &gt; 0.9999) else &quot;FAIL&quot;)</span>
-<span style="color: #BA2121">PY</span>
-python<span style="color: #bbbbbb"> </span>onnx_integration/verify.py
-</code></pre></div>
-
-<p>✅ <strong>期望看到</strong>：<code>max|err| = ~1e-7（在 1e-6 容差内）   pearson = 1.000000</code> + <code>PASS</code>。
-（已实测：本 repo 的 mlp_strong_120 跑出 <code>max|err| = 4.4e-7, pearson = 1.000000, PASS</code>。
-<code>1e-7</code> 量级是 f32 推理 vs f64 黄金参考的正常漂移，不是错误。）</p>
-<blockquote>
-<p>到这一步，<strong>你的模型已经成功"接入" onnxalpha 了</strong> —— 你有了一个自己导出、且验证正确的 bundle。</p>
-</blockquote>
-<hr />
-<h2 id="step-4-c-serving-so">Step 4 — 部署接入（C++ serving，复用全队共享 <code>.so</code>）</h2>
-<p><strong>关键心法</strong>：<code>.so</code>（<code>libonnxalpha.so</code> + <code>libonnxruntime.so.1.18.1</code>）是<strong>全队共享的同一份</strong>，已在共享路径。
-你这个项目<strong>只加一个 bundle</strong>，不编任何 C++。</p>
-<h3 id="4a-bundle">4a. 内网：把 bundle 放进共享路径</h3>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>cp<span style="color: #bbbbbb"> </span>-r<span style="color: #bbbbbb"> </span>onnx_integration/bundles/mlp_strong_120<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
-<span style="color: #bbbbbb">      </span>/gpfs/hddfs/sgqr/shared/onnxalpha/bundles/
-ls<span style="color: #bbbbbb"> </span>/gpfs/hddfs/sgqr/shared/onnxalpha/bundles/<span style="color: #bbbbbb">        </span><span style="color: #3D7B7B; font-style: italic"># 应能看到 mlp_strong_120</span>
-</code></pre></div>
-
-<p>（<code>.so</code> 已经在 <code>/gpfs/hddfs/sgqr/shared/onnxalpha/lib/</code>，不用动。）</p>
-<h3 id="4b-cfg-runner-json-alpha">4b. cfg 指向（你的 runner 的 json 里，alpha 段）</h3>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008000; font-weight: bold">&quot;alpha-manager&quot;</span>:<span style="color: #bbbbbb"> </span>{<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;repo_path&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;/gpfs/hddfs/sgqr/shared/onnxalpha/lib&quot;</span><span style="color: #bbbbbb"> </span>},
-<span style="color: #008000; font-weight: bold">&quot;alpha&quot;</span>:<span style="color: #bbbbbb"> </span>{
-<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;repo&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;onnxalpha&quot;</span>,
-<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;name&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;ts_onnx&quot;</span>,
-<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;config&quot;</span>:<span style="color: #bbbbbb"> </span>{
-<span style="color: #bbbbbb">    </span><span style="color: #008000; font-weight: bold">&quot;ukey&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #666666">110200132</span>,
-<span style="color: #bbbbbb">    </span><span style="color: #008000; font-weight: bold">&quot;bundle&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;/gpfs/hddfs/sgqr/shared/onnxalpha/bundles/mlp_strong_120&quot;</span>
-<span style="color: #bbbbbb">  </span>}
-}
-</code></pre></div>
-
-<h3 id="4c-runnerld_library_path-lib">4c. 起 runner（LD_LIBRARY_PATH 含共享 lib）</h3>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008000">export</span><span style="color: #bbbbbb"> </span><span style="color: #19177C">LD_LIBRARY_PATH</span><span style="color: #666666">=</span><span style="color: #BA2121">&quot;/gpfs/hddfs/sgqr/shared/onnxalpha/lib:</span><span style="color: #19177C">$LD_LIBRARY_PATH</span><span style="color: #BA2121">&quot;</span>
-<span style="color: #3D7B7B; font-style: italic"># ./bin/runner ./config/你的_runner.json ...</span>
-</code></pre></div>
-
-<p>✅ <strong>期望</strong>：runner 加载 <code>ts_onnx</code> 成功、逐 bar 出 alpha（量级 ~1e-5 return）。</p>
-<blockquote>
-<p>🖥️ <strong>本地(qrdev)想先验一把 C++</strong>：<code>.so</code> 用 <code>/home/samson/onnx_junjie/deploy/serving_lib/</code>，
-<code>bundle</code> 用 <code>onnx_integration/bundles/mlp_strong_120</code>，<code>LD_LIBRARY_PATH</code> 指向那个 serving_lib 即可。</p>
-</blockquote>
-<hr />
-<h2 id="step-5">Step 5 — 收尾：留一份接入记录</h2>
-<p><strong>做什么</strong>：把你实跑的输出贴进一个日志，方便复现 / 给同事。</p>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>cat<span style="color: #bbbbbb"> </span>&gt;<span style="color: #bbbbbb"> </span>onnx_integration/接入记录.md<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&lt;&lt;&#39;MD&#39;</span>
-<span style="color: #BA2121"># mlp_strong_120 接入 onnxalpha 记录</span>
-
-<span style="color: #BA2121">- 装包: pip install git+ssh://.../onnx_junjie.git  -&gt; onnxalpha 0.1.0</span>
-<span style="color: #BA2121">- 输入: crypto-ts-alpha/models/mlp_strong_120/weights.json</span>
-<span style="color: #BA2121">        + alpha_cfg(从 genaAC_sol_mlp120_val.json 的 alpha_cfg.ts_mlp 抽出)</span>
-<span style="color: #BA2121">- 导出: onnxalpha export ... -&gt; onnx_integration/bundles/mlp_strong_120</span>
-<span style="color: #BA2121">- 验证: max|err|=____  pearson=____  (粘 Step 3 实跑结果)</span>
-<span style="color: #BA2121">- 部署: bundle 拷进 /gpfs/hddfs/sgqr/shared/onnxalpha/bundles/ ; cfg 用 ts_onnx</span>
-<span style="color: #BA2121">MD</span>
-<span style="color: #008000">echo</span><span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;记录已建,记得把 Step3 的真实数字填进 ____&quot;</span>
-</code></pre></div>
-
-<hr />
-<h2 id="_1">一页流程图（记住这个就够）</h2>
-<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>你 repo 的 weights.json ─┐
-                         ├─ onnxalpha export ─→ bundle(model.onnx+schema.json)
-genaAC 抽出的 alpha_cfg ─┘                          │
-                                                    ├─ 本地: oa.Predictor 验证(Step3)
-                                                    └─ 内网: 拷进共享 bundles/ + cfg 指过去
-                                                            (.so 全队共享,不编 C++)
-</code></pre></div>
-
-<h2 id="_2">出错速查</h2>
-<table>
-<thead>
-<tr>
-<th>现象</th>
-<th>解法</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>onnxalpha: command not found</code></td>
-<td>没激活你建的环境；先 <code>conda activate onnx_demo</code>（或 <code>source ~/.venvs/onnx_demo/bin/activate</code>）再跑</td>
-</tr>
-<tr>
-<td>export 报 <code>KeyError: 'alpha_names'</code></td>
-<td>Step 1 的 cfg 没抽对；确认 <code>onnx_integration/alpha_cfg_mlp_strong_120.json</code> 顶层有 <code>alpha_names</code></td>
-</tr>
-<tr>
-<td>export 报维度断言失败</td>
-<td>weights 的 <code>n_features</code> 与子因子 Σshape 不一致；确认用的是 <code>mlp_strong_120</code> 那套权重+cfg</td>
-</tr>
-<tr>
-<td>Step3 <code>max|err|</code> 很大(&gt;1e-3)</td>
-<td>多半 alpha_cfg 顺序错了；确认抽的是 <code>alpha_cfg.ts_mlp</code>（不是别的模型段）</td>
-</tr>
-<tr>
-<td>内网 pip 装不上</td>
-<td>用 Step 0 的 🔁 离线 wheel 方式</td>
-</tr>
-</tbody>
-</table>
     </article>
   </section>
   <section class="report" id="hfcrypto-0614">
@@ -19582,6 +18680,911 @@ P5. Prediction discipline：每个intervention必配quantitative prediction
 <td>bar 数据换 horizon 到 ret_60（OI/funding 在分钟级才可能有效）</td>
 <td>—</td>
 <td>1天</td>
+</tr>
+</tbody>
+</table>
+    </article>
+  </section>
+  <section class="report" id="hfcrypto-onnx">
+    <header class="report-header">
+      <div class="report-group-tag" style="color:#1a7f37">ONNX</div>
+      <h1>onnx design review</h1>
+      <p class="subtitle">onnx_junjie 统一推理 package · 项目概览 · 可行性调研 · 实施计划</p>
+    </header>
+    <article class="markdown-body">
+<h1 id="onnx_junjie-onnx-package-faq">onnx_junjie ONNX 统一推理 package —— 项目概览与 FAQ</h1>
+<blockquote>
+<p>本块用一页讲清<strong>为什么做、优化什么、难点、常见问题</strong>。
+所有结论已对真实代码/工具/数据做过 file:line 级验证（见 §8.0）。
+技术细节往下看：§0–§6 现状基线、§7 可行性调研、§8 可执行实施计划。</p>
+<p><strong>总结</strong>：把"我训练的深度模型"做成同事 <code>import</code> 就能用的统一产物，<strong>融入增强</strong> senior
+的 <code>crypto-ts-alpha</code>/<code>crypto-ts-strategy</code> ，让任意模型结构都能零改
+C++ 进实盘。</p>
+</blockquote>
+<h2 id="onnx">一、项目的意义 / ONNX 的优势 / 为什么需要它</h2>
+<p><strong>现状痛点（为什么需要）</strong>：
+- 每种组合模型都在 C++ 里<strong>手写一遍 forward</strong>（已为此养了 <code>lgbm</code>/<code>mlp</code>/<code>cls_reg_mix</code> 三套），
+  换个结构就得重写一套。
+- Python 训练端与 C++ 推理端必须<strong>逐行对齐</strong>（特征顺序、预处理、数学），错位还<strong>不报错、静默失真</strong>。
+- 别人想复用我的模型，门槛很高。</p>
+<p><strong>ONNX 的优势</strong>：
+| 优势 | 解决的痛点 |
+|---|---|
+| <strong>架构无关</strong>：任意 PyTorch 结构导出一个 <code>.onnx</code>，C++ 零改代码加载 | 加新模型不再手写 forward |
+| <strong>跨语言</strong>：Python 与 C++ <strong>加载同一个文件</strong>推理 | 训练端=推理端，根除"两套实现对不齐" |
+| <strong>自包含</strong>：预处理(NaN 填充+标准化)+解码可烤进图 | 杜绝"漏做预处理/口径不一" |
+| <strong>业界标准</strong>：<code>torch.onnx</code> 原生导出，工具成熟、不绑框架 | 长期可维护，易上手 |</p>
+<p><strong>例子</strong>：模型从"一段必须自己写的 C++ 代码"升级为"一个可分发、自校验、跨语言的产物"；
+团队任何人都能训练 → 导出 → 直接进实盘，且<strong>不影响目前 senior 们实盘测试框架</strong>。</p>
+<h2 id="_1">二、对比现状：优化了什么 · 提效在哪 · 格式如何</h2>
+<p><strong>流程对比</strong>：
+| 环节 | 现状 | ONNX 后 |
+|---|---|---|
+| 训练（Python） | 不变 | 不变 |
+| 导出 | 手写 <code>export_mlp_weights.py</code>，只存权重 | <code>export()</code> 一键导出<strong>自包含 bundle</strong> |
+| C++ 推理 | 手写 forward（<code>MLPAlpha.h</code>，每种结构一套） | <strong>通用 <code>ts_onnx</code> alpha，零改代码</strong> |
+| 预处理 | C++ 手写 scaler+NaN，易与训练不一致 | <strong>烤进图</strong>，单一实现 |
+| 特征对齐 | cfg 手维护 + <code>gen_lgbm_cfg.py</code> 从列名反解 | <strong><code>schema.json</code> 单一事实来源 + 自动校验</strong> |
+| 换新结构 | 重复全套（重写 forward+对齐+逐值校验） | <strong>只换一个 <code>.onnx</code> 文件</strong> |</p>
+<p><strong>提效核心</strong>：① 加新模型/新结构，C++ 从"重写一套 forward+对齐"降到<strong>零代码</strong>（最大提效）；
+② 协作：同事 <code>pip install</code> → 训练 → <code>export()</code> → 发 bundle，全程不碰 C++；
+③ 正确性：预处理与特征顺序从"两端手维护"变成"产物自带 + 启动自动校验"，消除最常见的静默错位。</p>
+<p><strong>格式（bundle = 版本化产物，两个文件）</strong>：
+- <code>model.onnx</code>：计算图 = 预处理(NaN→median + 标准化) + 网络 + softmax + center 解码；
+  <strong>输入 = 原始特征向量，输出 = 单个标量 alpha</strong>。
+- <code>schema.json</code>：<strong>有序</strong>子因子清单（每项 <code>name</code>+<code>params</code>+<code>shape</code>）+ <code>input_dim</code> + 输出单位 +
+  版本/训练 commit —— 特征对齐契约本体。示意：</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>{<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;model_id&quot;</span>:<span style="color: #BA2121">&quot;mlp_strong_120&quot;</span>,<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;input_dim&quot;</span>:<span style="color: #666666">120</span>,<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;output&quot;</span>:{<span style="color: #008000; font-weight: bold">&quot;unit&quot;</span>:<span style="color: #BA2121">&quot;return&quot;</span>},
+<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;sub_alphas&quot;</span>:[
+<span style="color: #bbbbbb">    </span>{<span style="color: #008000; font-weight: bold">&quot;name&quot;</span>:<span style="color: #BA2121">&quot;CDiffDensity&quot;</span>,<span style="color: #008000; font-weight: bold">&quot;params&quot;</span>:{<span style="color: #008000; font-weight: bold">&quot;level&quot;</span>:<span style="color: #666666">50</span>},<span style="color: #008000; font-weight: bold">&quot;shape&quot;</span>:<span style="color: #666666">1</span>,<span style="color: #008000; font-weight: bold">&quot;col_start&quot;</span>:<span style="color: #666666">0</span>,<span style="color: #008000; font-weight: bold">&quot;col_end&quot;</span>:<span style="color: #666666">1</span>},
+<span style="color: #bbbbbb">    </span><span style="color: #BA2121">&quot;... 共 115 项, 顺序即组装顺序 ...&quot;</span>,
+<span style="color: #bbbbbb">    </span>{<span style="color: #008000; font-weight: bold">&quot;name&quot;</span>:<span style="color: #BA2121">&quot;magnitude&quot;</span>,<span style="color: #008000; font-weight: bold">&quot;params&quot;</span>:{},<span style="color: #008000; font-weight: bold">&quot;shape&quot;</span>:<span style="color: #666666">6</span>,<span style="color: #008000; font-weight: bold">&quot;col_start&quot;</span>:<span style="color: #666666">114</span>,<span style="color: #008000; font-weight: bold">&quot;col_end&quot;</span>:<span style="color: #666666">120</span>}
+<span style="color: #bbbbbb">  </span>]<span style="color: #bbbbbb"> </span>}
+</code></pre></div>
+
+<h2 id="_2">三、难点在哪 · 特征对齐怎么解决</h2>
+<p><strong>难点（均已定位/验证）</strong>：
+1. <strong>精度对齐</strong>：现状 C++ 全 <code>double</code>，ONNX 默认 <code>float32</code>。已实测漂移仅 <strong>~1.4e-8</strong>（相对 ~3e-5），
+   可接受；需逐 bit 兼容可导 f64 图。另有 <strong>centers 尺度坑</strong>：字段名叫 <code>centers_bp</code> 实为 return 尺度
+   （差 <strong>1e4 倍</strong>），导出务必对齐生产 cfg 实喂那套。
+2. <strong>NaN 语义（最易踩）</strong>：ONNX <code>IsNaN</code> <strong>不捕 ±inf</strong>，而 C++ 用 <code>!isfinite</code> 把 inf 也当缺失 →
+   图里必须 <code>IsNaN OR IsInf</code> 才一致。
+3. <strong>依赖接入</strong>：C++ 新增 onnxruntime（已确认 conancenter 有，<code>conanfile.txt</code> 加一行、CMake 零改；
+   体积 +~10MB 可裁剪到 2–4MB）。
+4. <strong>特征对齐（头号风险）</strong> → 见下。</p>
+<p><strong>特征对齐怎么解决</strong>：
+- 病根：特征向量 = "按固定顺序把 115 个子因子输出拼成 120 维"，顺序/参数/多输出展开任一处两端不一致，
+  预测就静默失真。现状靠 cfg 手维护 + 从列名反解（多输出如 <code>magnitude</code> 会丢 shape 信息）。
+- 解法：<strong><code>schema.json</code> 做单一事实来源</strong>，显式记录<strong>有序</strong>子因子（name+params+shape）。
+  C++ 通用 <code>OnnxAlpha</code> 读 schema 装配、按 shape 展开，<strong>逐位复刻</strong>现有 <code>MLPAlpha</code> 的组装循环；并设
+  <strong>四道自动校验</strong>：① 顺序=训练顺序 ② 每项 <code>shape</code>==运行时 <code>get_shape()</code> ③ <code>Σshape</code>==<code>input_dim</code>==onnx
+  入口维 ④ 组装末尾必须正好填满。任一不符<strong>直接 throw</strong> —— 错位从"静默失真"变成"启动即报错"。</p>
+<h2 id="faq">四、大家可能关心的问题（FAQ）</h2>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>会不会替换/动 senior 现有的东西？</td>
+<td><strong>不会，纯加法</strong>。现有 <code>mlp</code>/<code>lgbm</code>/<code>cls_reg_mix</code> 与所有 cfg/脚本一行不动；strategy 只是 JSON 里多一个可选名字 <code>ts_onnx</code>，框架/<code>.so</code> 加载/消费路径全不变。</td>
+</tr>
+<tr>
+<td>实盘会变慢吗？</td>
+<td><strong>不会</strong>。小模型单行推理<strong>微秒级</strong>，对 1s bar 占比 &lt;0.01%；session 启动开销只在进程启动一次。</td>
+</tr>
+<tr>
+<td>要重新训练模型吗？</td>
+<td><strong>不用</strong>。现有 <code>weights.json</code>（与部署端逐字节相同）直接导出，第一个模型不重训。</td>
+</tr>
+<tr>
+<td>精度会变吗？影响历史回测吗？</td>
+<td>f32 漂移 ~1e-8（远小于 alpha 波动），可接受；需逐 bit 一致可用 f64 图。切 ONNX 后报告基准建议重锚到 f32 口径。</td>
+</tr>
+<tr>
+<td>LGBM 也要走 ONNX 吗？</td>
+<td><strong>不</strong>。LGBM 已原生链 <code>c_api</code>（精确），LGBM→ONNX 有 float32 阈值精度差——只深度模型走 ONNX。</td>
+</tr>
+<tr>
+<td>二进制体积涨多少？</td>
+<td>onnxruntime 静态链约 +10MB，可 minimal build 压到 2–4MB，或独立 <code>.so</code>。</td>
+</tr>
+<tr>
+<td>大家具体怎么用？</td>
+<td><code>pip install hf-model</code> → 训练任意 torch 模型 → <code>export(model, schema)</code> 得 bundle → 发出 → 实盘丢给 <code>ts_onnx</code>，C++ 零改代码。</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>我目前想要如何去做</strong>：落地步骤见 §8「可执行实施计划」（P0–P5，file-level，每阶段带验收 gate）。
+最快路径 = 先做 P0–P2 的 Python 闭环验证可行，再推 C++ 接入。</p>
+</blockquote>
+<hr />
+<h1 id="hf_crypto-lgbm-mlp-feature">hf_crypto 模型推理现状（LGBM / MLP 输入输出与 feature 定义）</h1>
+<blockquote>
+<p>调研日期：2026-06-10。本文记录 SOL alpha 模型当前 Python 训练端 ↔ C++ 推理端的输入/输出定义、
+feature 如何定义、以及做 feature 实验的方式。作为后续（含 ONNX 化）工作的基线现状。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 一句话总结</h2>
+<p>模型输入 = 一个<strong>长度固定（SOL=115）的 <code>double</code> 向量</strong>，每个位置是一个子因子（sub-alpha）的输出，
+<strong>顺序写死</strong>；输出 = 单个 <code>double</code>（预测的 forward mid 收益，bp）。Python 训练端与 C++ 推理端
+<strong>必须逐位对齐</strong>，靠 <code>gen_lgbm_cfg.py</code> 从训练结果自动生成 C++ 配置来保证不错位。</p>
+<hr />
+<h2 id="1">1. 整体架构：两个并行、必须对齐的世界</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Python 训练端 (<code>sol_alpha/</code>)</th>
+<th>C++ 推理端 (<code>crypto-ts-alpha/</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>作用</td>
+<td>读因子 CSV → 拼特征矩阵 → 训练 → 存模型</td>
+<td>实盘/回测逐秒算因子 → 喂模型 → 出 alpha</td>
+</tr>
+<tr>
+<td>输入</td>
+<td><code>X = np.ndarray (n_rows, 115)</code> float64</td>
+<td><code>std::vector&lt;double&gt; values_</code>，长度 115</td>
+</tr>
+<tr>
+<td>模型产物</td>
+<td><code>booster.txt</code>(LGBM) / <code>weights.json</code>(MLP)</td>
+<td>运行时加载上述产物</td>
+</tr>
+<tr>
+<td>入口</td>
+<td><code>sol_alpha/train.py</code></td>
+<td><code>crypto-ts-alpha</code> 的 <code>genaAC</code> + cfg json</td>
+</tr>
+</tbody>
+</table>
+<p>关键 key：因子 CSV 列名形如 <code>Sr8Alpha4_6_a10_b10_0</code> = <code>因子名_参数_输出索引</code>，这是连接两端的纽带。</p>
+<hr />
+<h2 id="2-input">2. 输入（input）定义</h2>
+<h3 id="c-vectordouble">C++ 端 —— 扁平 <code>vector&lt;double&gt;</code></h3>
+<p><code>src/lgbm_combine_alpha.h</code> 的 <code>calculate_value()</code>（每个 1s bar 触发）：</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #B00040">uint32_t</span><span style="color: #bbbbbb"> </span>iw<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #666666">0</span>;
+<span style="color: #008000; font-weight: bold">for</span><span style="color: #bbbbbb"> </span>(<span style="color: #008000; font-weight: bold">const</span><span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">auto</span><span style="color: #666666">&amp;</span><span style="color: #bbbbbb"> </span>alpha<span style="color: #bbbbbb"> </span><span style="color: #666666">:</span><span style="color: #bbbbbb"> </span>alphas_)<span style="color: #bbbbbb"> </span>{<span style="color: #bbbbbb">          </span><span style="color: #3D7B7B; font-style: italic">// 按 config 里 alpha_names 顺序</span>
+<span style="color: #bbbbbb">    </span><span style="color: #008000; font-weight: bold">for</span><span style="color: #bbbbbb"> </span>(<span style="color: #B00040">uint32_t</span><span style="color: #bbbbbb"> </span>i<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span><span style="color: #666666">0</span>;<span style="color: #bbbbbb"> </span>i<span style="color: #bbbbbb"> </span><span style="color: #666666">&lt;</span><span style="color: #bbbbbb"> </span>alpha<span style="color: #666666">-&gt;</span>get_shape()[<span style="color: #666666">0</span>];<span style="color: #bbbbbb"> </span><span style="color: #666666">++</span>i,<span style="color: #bbbbbb"> </span><span style="color: #666666">++</span>iw)
+<span style="color: #bbbbbb">        </span>values_[iw]<span style="color: #bbbbbb"> </span><span style="color: #666666">=</span><span style="color: #bbbbbb"> </span>alpha<span style="color: #666666">-&gt;</span>get_value()[i];<span style="color: #bbbbbb"> </span><span style="color: #3D7B7B; font-style: italic">// 拼进 values_</span>
+}
+LGBM_BoosterPredictForMatSingleRowFast(handler,<span style="color: #bbbbbb"> </span>values_.data(),<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>len,<span style="color: #bbbbbb"> </span><span style="color: #666666">&amp;</span>value_);
+</code></pre></div>
+
+<ul>
+<li>数据结构：<code>std::vector&lt;double&gt; values_</code>，长度 = <code>ncols</code>（SOL=115）。</li>
+<li>每个 feature = 一个子因子的 <code>get_value()</code>。多数因子 <code>get_shape()={1}</code>；少数多输出：
+  <code>MagnitudeAlpha={6}</code>、<code>PriceBase={7}</code>、<code>BarOHLCV={7}</code>、<code>Price={3}</code>，占连续多个位置。</li>
+<li><strong>顺序 = config 里 <code>alpha_names</code> 数组顺序</strong>；<code>ncols</code> 必须 == 所有子因子 <code>get_shape()[0]</code> 之和，
+  否则 MLP / ClsRegMix 在 <code>on_start</code> 直接 throw。</li>
+</ul>
+<h3 id="python-n-115">Python 端 —— <code>(n, 115)</code> 矩阵</h3>
+<p><code>sol_alpha/data/features.py</code>：
+- 从 <code>/share/crypto_hf_alpha/{sr4,sr5,sr8,sr9}/&lt;ukey&gt;_&lt;日期&gt;.csv</code> 读各目录因子，按 <code>timestamp</code>
+  inner-join 成宽表（<code>load_factor_panel</code>）。
+- <code>feature_columns()</code>：除 <code>timestamp</code> 和原始价格列 <code>Price_0/1/2</code> 外的所有列 → 正好 115 个。
+- <code>to_matrix()</code> → <code>X = df[cols].to_numpy(float64)</code>。
+- <code>sanitize()</code>：<code>inf→NaN</code>，NaN 当缺失值喂 LGBM（不丢行）。
+- <code>mid = Price_1 = (bid+ask)/2</code>（已确认，OOS std=1.313bp 与报告吻合）；<code>Price_0</code>=末笔成交、
+  <code>Price_2</code>=microprice，原始价格水平列不作特征。</p>
+<hr />
+<h2 id="3-output">3. 输出（output）定义</h2>
+<h3 id="c-1-double">C++ 端：统一接口，组合模型都输出 1 个 double</h3>
+<p>每个 alpha 实现 <code>get_shape()</code> / <code>get_value()</code> / <code>get_timestamp()</code>。三种组合模型：</p>
+<table>
+<thead>
+<tr>
+<th>模型 (Factory 名)</th>
+<th>文件</th>
+<th><code>value_</code> 含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>LGBM</strong> (<code>lgbm</code>)</td>
+<td><code>lgbm_combine_alpha.h</code></td>
+<td>booster 直接回归预测（bp）</td>
+</tr>
+<tr>
+<td><strong>MLP</strong> (<code>mlp</code>)</td>
+<td><code>MLPAlpha.h</code></td>
+<td>3 层 BN+GELU → 7 类 softmax → <code>probs · centers_bp</code>（期望解码 bp）</td>
+</tr>
+<tr>
+<td><strong>ClsRegMix</strong> (<code>cls_reg_mix</code>)</td>
+<td><code>ClsRegMixAlpha.h</code></td>
+<td>两段全期望 <code>Σ_k P(k\|X)·reg_k(X)</code>，跳过 flat 类</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>关键差异</strong>：MLP 推理前多一步 StandardScaler 标准化 + NaN→训练中位数填充
+（<code>MLPAlpha.h</code> 中，scaler 参数存于 <code>weights.json</code>）。LGBM 树模型原生吃 NaN、不需要标准化。
+换模型时勿把 LGBM 的原始 NaN 直接喂进 MLP。</p>
+</blockquote>
+<h3 id="python-y">Python 端：训练目标 y</h3>
+<p><code>train.py</code>：<code>y_bp = T.to_bp(T.forward_mid_return(mid))</code> —— 未来 mid 收益（bp），用 <code>Price_1</code> 算。</p>
+<hr />
+<h2 id="4-factory-srcfactorycc">4. Factory 已注册的组合模型（<code>src/Factory.cc</code>）</h2>
+<p><code>demo, PriceBase, BarOHLCV, lgbm, lgbm_clf, ts_lgbm_clf, magnitude, cls_reg_mix, ts_cls_reg_mix,
+mlp, ts_mlp, ts_ens3, ult_lgbm, ...</code> + 160+ 个单因子（CDiff<em>, Sr4</em>, Sr5<em>, Sr8</em>, Sr10<em>, Sr12</em> 等）。
+<code>ts_*</code> 前缀 = 时序版（<code>BaseTSAlpha</code>），非 <code>ts_</code> = <code>BaseAlpha</code>。</p>
+<hr />
+<h2 id="5-feature">5. 做 feature 实验的三种方式</h2>
+<h3 id="a-115">A. 从现有 115 个增删/筛选（最常用，改配置即可）</h3>
+<ul>
+<li>Python：config yaml 里 <code>exclude_features: [...]</code> 丢列；或改 <code>sr_dirs</code> 控制读哪些目录。</li>
+<li>C++：改 cfg json 的 <code>alpha_names</code> 数组 + <code>alphas</code> 参数字典，同步改 <code>ncols</code>。</li>
+<li>⚠️ 两端顺序必须完全一致 → <strong>不要手改</strong>，用 <code>crypto-ts-alpha/cfg/gen_lgbm_cfg.py</code>：
+  读训练产出的 <code>results.json</code> 的 <code>feature_names</code>，解析 <code>Sr8Alpha4_6_a10_b10_0 → (key,{a:10,b:10})</code>
+  自动生成对齐的 C++ json。错位不会报错，但预测会全乱。</li>
+</ul>
+<h3 id="b">B. 调因子参数（窗口等）</h3>
+<ul>
+<li>两端 config 改对应因子的参数字典（如 <code>"Sr5Atr": {"n": 300}</code> → <code>{"n": 600}</code>）。</li>
+<li>同一因子类不同参数 = 不同 feature 列（列名 <code>_a10_b10</code> 会变），需重新生成训练 CSV。</li>
+</ul>
+<h3 id="c">C. 加全新因子（最重，必须双端实现并对齐）</h3>
+<ol>
+<li>C++：仿 <code>DemoAlpha.h/.cc</code> 写 <code>BaseAlpha</code> 子类（<code>on(各事件)</code> + <code>get_shape/get_value/get_timestamp</code>），
+   在 <code>Factory.cc</code> 注册、<code>AllFactor.h</code> include。</li>
+<li>Python：让其成为训练 CSV 一列；派生因子可直接在 <code>features.py</code> 加（如 <code>add_magnitude_features</code>）。</li>
+<li>验证对齐：跑 <code>validate_*_cpp.py</code>（<code>validate_magnitude_cpp.py</code> / <code>validate_mlp_cpp.py</code> /
+   <code>validate_crm_cpp.py</code> / <code>validate_clf7_cpp.py</code>），逐值比对两端，必须一致。</li>
+</ol>
+<blockquote>
+<p>双端派生因子最佳模板：<code>features.py::add_magnitude_features</code>（Python）↔ <code>MagnitudeAlpha.h</code>（C++），
+注释逐行标注如何对齐 pandas 的 rolling / min_periods / fillna。</p>
+</blockquote>
+<hr />
+<h2 id="6">6. 关键风险点 / 注意事项</h2>
+<ul>
+<li><strong>两端对齐是头号风险</strong>：feature 顺序/参数/NaN 处理任一不一致，预测就失真且不报错。改 feature 后
+  务必跑 <code>validate_*_cpp.py</code>。</li>
+<li><strong>MLP vs LGBM 的预处理差异</strong>：MLP 需要 StandardScaler + 中位数填充，LGBM 不需要。</li>
+<li><strong>NaN 语义</strong>：LGBM 把 NaN 当缺失值（保留行）；MLP 用训练中位数填充；某些因子（如
+  <code>Sr5EmaTrade_a10_b10</code>）在某些日期整列 NaN。</li>
+<li><strong>C++ 推理是逐 1s bar 单行预测</strong>（<code>PredictForMatSingleRowFast</code>），不是批量。</li>
+</ul>
+<hr />
+<h2 id="7-packageonnx-2026-06-14">7. 统一推理 package（ONNX 化）可行性调研（2026-06-14）</h2>
+<blockquote>
+<p>目标：开一个<strong>新 repo</strong>，写一个统一 package / 接口，让同事 <code>import</code> 就能复用我训练的
+MLP / 其它深度模型，<strong>而不必每换一种结构就在 C++ 里手写一遍 forward</strong>。
+本节为该需求的可行性调研结论。</p>
+<p><strong>⚠️ 设计铁律（融入而非替换）</strong>：本工具<strong>必须基于、增强</strong> senior 既有的 <code>crypto-ts-alpha</code> +
+<code>crypto-ts-strategy</code> 范式——<strong>绝不替换/推翻</strong> senior 的东西，而是融入使其更强，并让其他人能
+<strong>适配她（senior）现有的 <code>BaseAlpha</code>/<code>Factory</code> 范式</strong>。下文所有"通用 onnx alpha"都是<strong>新增、
+与现有 bespoke 实现并存</strong>的家族新成员；现有 <code>mlp</code>/<code>lgbm</code>/<code>cls_reg_mix</code> 一律<strong>保留照常工作</strong>，
+crypto-ts-strategy 的消费路径（<code>.so</code>/<code>genaAC</code>/cfg）<strong>不变</strong>，新范式只是多一个可选 alpha 类型。</p>
+</blockquote>
+<h3 id="70">7.0 一句话结论</h3>
+<p><strong>能实现，ONNX 就是为这个场景设计的标准解法。</strong> 训练端任意 PyTorch 架构 → 导出一个
+<code>.onnx</code> → Python(<code>onnxruntime</code>) 与 C++(<code>onnxruntime</code> C++ API) 加载<strong>同一个文件</strong>推理；
+<strong>加新架构（CNN/LSTM/Transformer）时 C++ 端零改代码，只换一个 <code>.onnx</code> + schema</strong>。
+预处理（StandardScaler + NaN 填充）可烤进 ONNX 图，让产物完全自包含。</p>
+<p>唯一 ONNX <strong>不能</strong>替你解决的是<strong>特征向量组装顺序对齐</strong>（第 2 节那个头号风险）——所以 package
+必须把"特征 schema（名字+顺序）"作为元数据和模型绑在一起、并在加载时校验（见 7.5）。</p>
+<h3 id="71">7.1 为什么现状不可扩展（痛点精确定位）</h3>
+<p>当前 <a href="../../hfcrypto_junjie/crypto-ts-alpha/src/MLPAlpha.h">MLPAlpha.h</a> 是<strong>纯手写 C++ forward</strong>：
+<code>Linear → 融合 BN(</code>s<em>bn_scale+bn_shift<code>) → GELU(erf 版) → 输出层 → softmax → center 解码</code>
+全是 <code>std::vector&lt;double&gt;</code> 手撸循环（<code>calculate_value()</code> lines 177-251）。其结构必须和 Python
+训练端</em><em>逐行对齐</em>*。后果：</p>
+<ul>
+<li><strong>每换一种模型结构，就要在 C++ 重写一遍 forward</strong>——这正是"让同事用任意深度模型"的核心障碍。
+  现在 repo 里已经为此并行养了三套 bespoke C++ 实现：<code>lgbm</code> / <code>mlp</code> / <code>cls_reg_mix</code>。
+  （目标是<strong>新增</strong>一条通用 ONNX 路径<strong>融入增强</strong>这套框架，<strong>不是删掉这三套</strong>——它们照常保留工作。）</li>
+<li>已确认<strong>好消息</strong>：<code>calculate_value()</code> 在"特征组装完之后"的数学核心，对 <code>BaseAlpha</code>/事件系统
+  <strong>零依赖</strong>，抽出来很容易（耦合点只有 <code>on_start</code> 装子因子、<code>on(bar_t)</code> 触发、<code>get_value()</code> 取值）。</li>
+</ul>
+<h3 id="72-bundle-runtime">7.2 推荐架构：「模型 bundle + 双语言薄 runtime」</h3>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>            训练端 (Python, 同事/我)
+                    │  export()  ← 唯一需要&quot;懂模型&quot;的地方
+                    ▼
+        ┌─────────────────────────────┐
+        │   模型 bundle (版本化产物)    │   ← 单一事实来源 (single source of truth)
+        │   model.onnx  + schema.json │
+        └─────────────────────────────┘
+            │                       │
+   import &amp; predict            link &amp; predict
+            ▼                       ▼
+   Python runtime (onnxruntime)   C++ runtime (onnxruntime C++ API)
+   研究/回测                       新增一个&quot;通用 onnx alpha&quot;作为新成员,
+                                   注册进 Factory, 与现有 mlp/cls_reg_mix 并存
+</code></pre></div>
+
+<p>三个组件：
+1. <strong>bundle</strong>：版本化的模型产物（<code>.onnx</code> + <code>schema.json</code>），跨语言、自包含。
+2. <strong>薄 runtime</strong>（两套，但都只是 onnxruntime 的封装）：Python 包 + C++ 库，<strong>对外都是同一个
+   <code>predict(features) -&gt; double</code> 语义</strong>。runtime 不懂模型结构，只负责喂张量、取结果、校验 schema。
+3. <strong>export 助手</strong>（训练端）：<code>export(torch_model, feature_schema, scaler) -&gt; bundle</code>，是
+   <strong>唯一</strong>需要懂模型/框架的地方，把"标准化"这件事收口到一个函数。</p>
+<p>这样"同事 import 就能用任意深度模型"成立：同事训练任意 torch 模型 → 调 <code>export()</code> → 发一个
+bundle → 消费端代码一行不改。</p>
+<h3 id="73-bundle">7.3 bundle 里到底装什么</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+<th>解决什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>model.onnx</code></td>
+<td>计算图（<strong>预处理烤进去</strong>：NaN→median 填充 + StandardScaler + 网络 + softmax + center 解码）</td>
+<td>架构无关、跨语言</td>
+</tr>
+<tr>
+<td><code>schema.json</code></td>
+<td><code>feature_names</code>（<strong>有序</strong>）、<code>input_dim</code>、各子因子 <code>get_shape</code>、output 含义/单位(bp)、<code>model_id</code>、<code>version</code>、训练 commit</td>
+<td>特征对齐（单一事实来源，新范式下可选简化 <code>gen_lgbm_cfg.py</code> 双向手维护）、可追溯</td>
+</tr>
+</tbody>
+</table>
+<p>关键设计：<strong>特征顺序写进 bundle 的 schema，而不是散落在 C++ cfg 和 Python config 两处</strong>。现有
+<a href="../../hfcrypto_junjie/crypto-ts-alpha/cfg/gen_lgbm_cfg.py">gen_lgbm_cfg.py</a> 做的"从 <code>results.json</code>
+的 <code>feature_names</code> 反解出 C++ alpha 参数"这件事，未来可由通用 onnx alpha 直接读 bundle 的
+<code>schema.feature_names</code> 完成——单一事实来源，错位无处藏身。（现有 <code>gen_lgbm_cfg.py</code> 路径<strong>保留照常
+工作</strong>，新范式下只是<strong>可选简化</strong>，不强制删。）</p>
+<h3 id="74">7.4 三种消费场景 × 对应实现（按你拍板的"消费端语言"选）</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>Python runtime</th>
+<th>C++ runtime</th>
+<th>工作量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>两者都要</strong>（默认假设：训练Python+实盘C++）</td>
+<td>pip 包，<code>onnxruntime</code> 一层封装</td>
+<td><strong>新增</strong>一个<strong>通用 <code>onnx</code> alpha</strong>（仿 <code>MLPAlpha</code> 的 <code>BaseAlpha</code> 适配壳、注册进 <code>Factory</code> 与现有并存，内部不再手写 forward，改成 <code>Ort::Session.Run</code>）+ onnxruntime C++ 依赖</td>
+<td>中：两套薄 runtime，共享一个 bundle</td>
+</tr>
+<tr>
+<td>仅 Python</td>
+<td>同上</td>
+<td>—</td>
+<td>小：几乎只是 onnxruntime + schema 校验</td>
+</tr>
+<tr>
+<td>仅 C++</td>
+<td>仅 export 脚本</td>
+<td>同上通用 onnx alpha</td>
+<td>中：重点在 C++ 集成 + parity</td>
+</tr>
+</tbody>
+</table>
+<p>C++ 单行推理范式（每个 1s bar）：进程启动时建一次 <code>Ort::Session</code>（复用），每 bar 组装
+<code>1×N</code> 输入张量 → <code>session.Run</code> → 取标量输出。<strong>1s bar 预算极其宽裕，onnxruntime 的 per-call
+开销（微秒~数十微秒级）对你这里完全不是问题</strong>（不是 sub-ms 的 taking 决策路径）。</p>
+<h3 id="75-onnx">7.5 ONNX 关键技术细节与坑</h3>
+<ol>
+<li><strong>精度对齐（头号坑，必须先定）</strong>
+   - 现状 C++ <strong>全程 <code>double</code></strong>（<a href="../../hfcrypto_junjie/crypto-ts-alpha/src/MLPAlpha.h#L99">MLPAlpha.h:99-129</a>）；
+     而 PyTorch 训练几乎肯定是 <strong>float32</strong>，<code>torch.onnx.export</code> 默认导出 <strong>float32 图</strong>，onnxruntime
+     默认按 float32 跑。
+   - 推论：<strong>现在的 double C++ 推理本来就和 float32 训练不完全一致</strong>；改用 float32 ONNX 反而会让
+     C++ 推理<strong>更贴近训练真值</strong>。但代价是：历史报告里那些用 double C++ 算出来的数会<strong>轻微漂移</strong>。
+   - 两条路二选一：<ul>
+<li><strong>(a) float32 ONNX</strong>（推荐）：与训练一致、更快、生态全。验证时基准选 <strong>PyTorch float32 forward</strong>，
+   不是旧 double C++。</li>
+<li><strong>(b) float64 ONNX</strong>（把模型 cast double 再导）：与现有 double C++ 精确对齐、向后兼容历史数；
+   代价是略慢、部分算子/EP 的 double 覆盖较少。</li>
+</ul>
+</li>
+<li><strong>预处理烤进图</strong>：<code>NaN→median</code> 用 <code>Where(IsNaN(x), median, x)</code>（opset≥9），再
+   <code>(x-mean)/scale</code>（<code>Sub</code>/<code>Div</code>），都能进 ONNX 图。烤进去后 bundle 吃"原始特征"，消费端不可能漏做
+   预处理——比现状（C++ 里手写 scaler、LGBM 又不需要 scaler，容易喂错，见第 6 节）更稳。</li>
+<li><strong>center 解码也进图</strong>：<code>softmax · centers_bp</code> 用 <code>Softmax</code>+<code>MatMul</code>/<code>ReduceSum</code> 表达，使 onnx
+   输出直接就是 bp，runtime 真正零业务逻辑。</li>
+<li><strong>特征对齐 ONNX 管不了</strong>：见 7.3，靠 schema + 加载校验（<code>input_dim==Σget_shape</code> 不符就 throw，
+   沿用现有 <code>on_start</code> throw 的思路）。</li>
+<li><strong>多输出子因子</strong>：<code>magnitude={6}</code>/<code>PriceBase={7}</code> 等占连续多位，schema 里要记每个子因子的
+   <code>get_shape</code>，组装时按它展开（C++ 通用 alpha 复用现有 <code>for i in get_shape()[0]</code> 逻辑）。</li>
+</ol>
+<h3 id="76-lgbm-onnx">7.6 LGBM 要不要也走 ONNX（诚实取舍）</h3>
+<ul>
+<li>技术上<strong>可以</strong>：<code>onnxmltools.convert_lightgbm</code> 能转。</li>
+<li>但 <strong>LightGBM→ONNX 的树集成在 onnxruntime 里用 float32 阈值，和原生 LGBM 的 double 预测有
+  已知的小幅不一致</strong>；而本 repo <strong>已经原生链 <code>LightGBM/c_api.h</code></strong>（conan 里已有 <code>lightgbm</code> 包），
+  这条路是精确的。</li>
+<li>结论（做对的事优先）：<strong>深度模型走 ONNX（手写 forward 的痛点在这），LGBM 维持原生 c_api</strong>。
+  统一接口可以在"runtime 外壳"层做到（对外都是 <code>predict</code>），但底层 LGBM 不必硬塞进 ONNX 换来一个
+  需要反复验证的精度差。若坚持全统一，须把 LGBM→ONNX 的 parity 误差当独立验收项。</li>
+</ul>
+<h3 id="77">7.7 备选方案对比与取舍</h3>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>架构无关?</th>
+<th>跨语言?</th>
+<th>依赖重量</th>
+<th>取舍</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. ONNX bundle + 薄 runtime</strong> ✅推荐</td>
+<td>✅</td>
+<td>✅ Py+C++</td>
+<td>onnxruntime（中）</td>
+<td>命中全部诉求；需新增 onnxruntime 依赖 + 精度对齐</td>
+</tr>
+<tr>
+<td>B. 抽成 header-only <code>MLPInferenceEngine</code>（把现有手写 forward 抽包）</td>
+<td>❌ 仍要手写新结构</td>
+<td>C++为主</td>
+<td>零新依赖</td>
+<td>最省事，但<strong>不解决核心痛点</strong>；仅当同事永远只用这一种 MLP 形状才够</td>
+</tr>
+<tr>
+<td>C. TorchScript / libtorch</td>
+<td>✅</td>
+<td>Py+C++</td>
+<td>libtorch（<strong>很重</strong>，数百 MB）</td>
+<td>也能架构无关，但部署进 HFT C++ binary 太重，比 onnxruntime 笨</td>
+</tr>
+<tr>
+<td>D. gRPC/REST 推理微服务</td>
+<td>✅</td>
+<td>任意语言</td>
+<td>服务化</td>
+<td>多一跳网络+运维，<strong>不适合实盘内联</strong>；研究/批量可接受</td>
+</tr>
+<tr>
+<td>E. 纯 Python 包</td>
+<td>✅</td>
+<td>❌ 仅Py</td>
+<td>onnxruntime/torch</td>
+<td>同事全是 Python 才够；本 repo 实盘是 C++,不满足</td>
+</tr>
+</tbody>
+</table>
+<h3 id="78-repo-archetype">7.8 新 repo 目录结构建议（archetype）</h3>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>hf-model/                      # 新 repo (建议放 git.9th-tech.com 同内网)
+  pyproject.toml               # pip 可装
+  hfmodel/                     # Python runtime + export
+    __init__.py
+    bundle.py                  # 读写 bundle (model.onnx + schema.json), 版本/校验
+    export.py                  # export(torch_model, schema, scaler) -&gt; bundle (烤预处理进图)
+    predict.py                 # Predictor: load(bundle) -&gt; predict(features)-&gt;bp  (onnxruntime)
+    schema.py                  # FeatureSchema: 有序 feature_names + get_shape + 校验
+  cpp/                         # C++ runtime (header + 薄 .cc, 封装 onnxruntime C++ API)
+    include/hfmodel/predictor.h  # OnnxPredictor::load(bundle); run(span&lt;double&gt;)-&gt;double
+    src/predictor.cc
+    CMakeLists.txt / conanfile  # 依赖 onnxruntime (conan center 有, 或 vendored)
+  adapters/                    # 把 runtime 融入现有 crypto-ts-alpha 框架(增强,不改框架)
+    OnnxAlpha.h                # 通用 BaseAlpha 适配壳(新增,注册进 Factory,与 MLPAlpha/ClsRegMix 并存)
+  tests/
+    test_parity.py             # ONNX 输出 vs PyTorch float32 forward, 逐值
+    test_cpp_parity/           # C++ runtime 输出 vs Python, 逐值 (沿用 validate_*_cpp.py 思路)
+  examples/
+    train_and_export_mlp.py    # 同事照抄的最小例子
+</code></pre></div>
+
+<p>注：现 repo 用 conan（本机缓存已有 <code>eigen</code>/<code>lightgbm</code>/<code>rapidjson</code>/<code>fmt</code>/<code>spdlog</code> 等），新 repo
+沿用 conan 接 onnxruntime 最顺；onnxruntime 在 conancenter 有 recipe，或用官方预编译包 vendored。</p>
+<h3 id="79-parity">7.9 分阶段落地路线 + parity 验证（不可省）</h3>
+<ol>
+<li><strong>P0 训练侧（现成，不用还原 —— 已更正）</strong>：训练/导出代码完整存在于
+   <code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/</code>（<code>mlp_strong_120.py</code>/<code>export_mlp_weights_120.py</code>），
+   其 <code>output/mlp_strong_120/weights.json</code> 与 C++ 部署端 <a href="../../hfcrypto_junjie/crypto-ts-alpha/models/mlp_strong_120/weights.json">weights.json</a>
+   <strong>逐字节相同</strong>。故 P0 只是"加一个 onnx 导出脚本"，非从零重建。模型：120→256×3→7，融合BN，
+   GELU erf，centers 是<strong>收益尺度 ~1e-4 非 bp</strong>，勿被名字骗。详见 §8 实施计划。</li>
+<li><strong>P1 Python 闭环</strong>：<code>export()</code> 把该模型（含 scaler/median/center 解码）导成烤好预处理的 onnx；
+   <code>test_parity.py</code> 验 ONNX 输出 == PyTorch float32 forward（定 7.5 的精度基准）。</li>
+<li><strong>P2 C++ runtime</strong>：<strong>新增</strong>通用 <code>OnnxAlpha</code>（<code>BaseAlpha</code> 壳 + <code>Ort::Session</code>，注册进 <code>Factory</code>
+   与现有并存），逐值比对 Python runtime；再和现有 double <code>MLPAlpha</code> 比对，量化 float32 漂移（决定是否需 float64 图）。</li>
+<li><strong>P3 收口对齐</strong>：通用 alpha 直接读 bundle 的 <code>schema.feature_names</code> 组装特征（<code>gen_lgbm_cfg.py</code>
+   现状保留，新范式下可选简化双向手维护）；跑现有 <code>validate_*_cpp.py</code> 等价回归。</li>
+<li><strong>P4 推广</strong>：同事按 <code>examples/</code> 训练任意结构 → <code>export()</code> → 发 bundle → 实盘换 onnx 文件即用。</li>
+</ol>
+<h3 id="710">7.10 需要你拍板的决策点（权限流断了没问成，列在此）</h3>
+<ul>
+<li><strong>D1 消费端语言</strong>：Python研究+C++实盘两者都要（默认假设）/ 仅Python / 仅C++ —— 决定做几套 runtime。</li>
+<li><strong>D2 核心目标层级</strong>：架构无关（默认，止于深度模型）/ 连 LGBM 也统一进同一 predict（须接受 LGBM→ONNX
+  精度验收）/ 只把现状 MLP 标准化打包（先用 B 方案）。</li>
+<li><strong>D3 精度策略</strong>：float32 ONNX（推荐，贴训练，历史数会微漂）/ float64 ONNX（精确兼容旧 double C++）。</li>
+<li><strong>D4 新 repo 落点</strong>：内网 <code>git.9th-tech.com</code>（与现 repo 同源，方便同事拉）还是别处。</li>
+</ul>
+<h3 id="711">7.11 风险点清单</h3>
+<ul>
+<li><strong>协作铁律（融入而非替换）</strong>：必须基于、增强 senior 的 <code>crypto-ts-alpha</code>/<code>crypto-ts-strategy</code>；
+  新 onnx 路径与现有 bespoke <strong>并存</strong>、不破坏 strategy 消费路径（<code>.so</code>/<code>genaAC</code>/cfg 不变）——违背即方案作废。</li>
+<li><strong>特征对齐仍是头号风险</strong>：ONNX 只解决模型可移植，顺序/参数错位照样静默失真 → schema 单一事实来源 +
+  加载校验 + parity 测试，缺一不可。</li>
+<li><strong>精度漂移</strong>：见 D3；切 ONNX 后历史报告基准要重锚到 PyTorch float32，别和旧 double C++ 直接比数。</li>
+<li><strong>新增 onnxruntime 依赖</strong>：进 HFT C++ binary 需评估体积/EP；用 CPU EP、关多余 EP 以控体积与启动开销。</li>
+<li><strong>LGBM 精度差</strong>：若 D2 选"全统一"，LGBM→ONNX 的 float32 阈值误差须单列验收，否则维持原生 c_api。</li>
+<li><strong>训练侧现成（已更正）</strong>：完整 sol_alpha 在 <code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/</code>，
+  weights.json 与部署端逐字节相同，P0 不需重建——详见 §8 实施计划。</li>
+</ul>
+<hr />
+<h2 id="8-file-level-2026-06-14">8. 可执行实施计划（file-level，基于 2026-06-14 五路深挖实证）</h2>
+<blockquote>
+<p>第 7 节是可行性背景；本节是落地用的 file-level 计划。五个原本"拍脑袋"的假设已逐一对真实
+代码/工具/数据验证（带 file:line），故<strong>整体可行、低风险</strong>。</p>
+</blockquote>
+<h3 id="80">8.0 为什么"通"——五路实证</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>原假设</th>
+<th>实证结论</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>C++ 接入要动框架</td>
+<td><strong>零改框架</strong>：strategy 只把 JSON 里 <code>ts_mlp→ts_onnx</code>；Factory 加 2 个 <code>if</code>；机制 <code>load_ts(repo,name,cfg)→dlopen lib*.so→factory-&gt;create</code></td>
+<td><code>HFTaking.cc:33-39</code>、<code>alpha_manager.h:23/102-109</code>、<code>Factory.cc:29-32</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>模型能否精确还原未知</td>
+<td><strong>能，已实测</strong>：PyTorch 复刻 vs 纯 double 参考，f64 max_abs=<strong>2.9e-17</strong>、f32=<strong>1.4e-8</strong></td>
+<td>2000 样本含 5% NaN</td>
+</tr>
+<tr>
+<td>3</td>
+<td>onnxruntime C++ 能否接入未知</td>
+<td><strong>能且轻</strong>：conancenter 有 <code>onnxruntime/1.18.1</code>（默认 CPU 静态），<code>conanfile.txt</code> 加一行、CMake 零改；单行推理微秒级</td>
+<td><code>conan search onnxruntime</code>、<code>CMakeLists.txt:10/26</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>训练侧缺失要从零还原（<strong>上一版最大误判</strong>）</td>
+<td><strong>不用还原</strong>：完整 <code>sol_alpha</code> 在 <code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/</code>，<code>weights.json</code> 与部署端<strong>逐字节相同</strong></td>
+<td><code>mlp_strong_120.py</code>、<code>export_mlp_weights_120.py</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>特征对齐契约不清</td>
+<td><strong>已固化</strong>：真实 115 子因子→120 列，唯一多输出 <code>magnitude={6}</code> 占 [114..119]，schema 就绪</td>
+<td><code>genaAC_sol_mlp120_val.json</code>、<code>MLPAlpha.h:66-67/181-196</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="81">8.1 架构落点（三个位置，全部加法）</h3>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>新增内容</th>
+<th>动他人代码?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>新 repo <code>hf-model/</code></strong>（同事 import 入口）</td>
+<td>Python <code>hfmodel</code>：<code>export()</code>/<code>Predictor</code>/<code>schema</code>+<code>bundle</code>；C++ ORT 薄封装；examples/文档</td>
+<td>全新，零触碰</td>
+</tr>
+<tr>
+<td><strong><code>crypto-ts-alpha/</code></strong>（融入点，纯新增）</td>
+<td><code>src/OnnxAlpha.h</code>+<code>src/TSOnnxAlpha.h</code>（新文件）；<code>Factory.cc</code> 加 2 个 <code>if</code>；<code>AllFactor.h</code> 加 2 个 include；<code>conanfile.txt</code> 加 <code>onnxruntime</code></td>
+<td>仅追加，旧 entry/链接不动</td>
+</tr>
+<tr>
+<td><strong><code>sol_alpha/</code></strong>（训练侧，纯新增）</td>
+<td><code>export_onnx_120.py</code>（torch→onnx+schema）；<code>validate_onnx_parity.py</code></td>
+<td>现有脚本不动</td>
+</tr>
+</tbody>
+</table>
+<h3 id="82-file-level-p0p5-gate">8.2 file-level 阶段（P0–P5，每阶段带验收 gate）</h3>
+<ul>
+<li><strong>P0 环境与基线锁定（~0.5d）</strong>：隔离 venv 装 <code>onnx onnxruntime</code>（dry-run 已验证可装；torch/sklearn 现成；<strong>不需</strong> skl2onnx/onnxmltools）；复核两端 weights.json 一致、<code>centers_unit="return"</code>。<strong>Gate</strong>：<code>import onnxruntime</code> 成功。</li>
+<li><strong>P1 训练端导出（~0.5d）</strong>：新增 <code>sol_alpha/export_onnx_120.py</code>，用精确复刻的 <code>MLPAlphaNet</code>（BN 用预融合 scale/shift 逐元素 affine，<strong>非 nn.BatchNorm</strong>；GELU erf；<code>W</code> 是 <code>[out,in]</code> 直接赋值不转置），把<strong>预处理+解码全烤进图</strong>：<code>Where(IsNaN(x) OR IsInf(x), median, x)→(x-mean)/scale→网络→Softmax→·centers</code>，<code>opset_version=17</code>。<strong>centers 尺度必须对齐生产 cfg 实际喂的那套（名义 bp vs return 差 1e4 倍）</strong>。<strong>Gate</strong>：导出 <code>.onnx</code>+<code>schema.json</code>，核对输入名/维=120、输出标量。</li>
+<li><strong>P2 Python parity（~1d）</strong>：新增 <code>validate_onnx_parity.py</code>，复用 <code>validate_mlp_cpp.py</code> 的 numpy-forward 作锚点；<strong>同一矩阵喂各端</strong>（不靠时间戳 join）三方比 <code>onnxruntime</code> vs <code>torch f32</code> vs <code>numpy-double(=C++ 语义)</code>；输入含真实 OOS 切片 + <strong>NaN 覆盖批</strong>（全有限/单 NaN/整列 NaN/inf）。容差：onnx↔torch <code>atol=1e-6</code>；onnx/torch↔double <code>atol≈1e-7~1e-6</code>+<code>Pearson&gt;0.9999</code>，按 NaN 桶分别报。<strong>Gate</strong>：onnx 对齐 double 不差于 torch-f32；NaN 桶 max|err| 与有限桶同量级。</li>
+<li><strong>P3 C++ 接入（~1.5d）</strong>：<code>conanfile.txt</code> 加 <code>onnxruntime/1.18.1</code>（经典 generator 下 CMake 零改；内网无包则 vendored 微软预编译兜底）；新增 <code>OnnxAlpha.h</code>（照抄 <code>MLPAlpha</code> 的 11 虚方法/子因子 load <code>:60-69</code>/iw 组装 <code>:181-196</code>，<strong>仅</strong>把手写 forward <code>:213-251</code> 换成 <code>Ort::Session.Run</code>，输入 float32 <code>{1,120}</code>，预处理已烤图故 C++ 零预处理）+ <code>TSOnnxAlpha.h</code>（同 <code>TSMLPAlpha</code>，<code>name "mlp"→"onnx"</code>、<code>weights→onnx_path</code>）；<code>AllFactor.h</code>/<code>Factory.cc</code> 各加 2 行（不碰旧 entry）：
+  <code>cpp
+  if (name=="onnx")    return std::make_unique&lt;OnnxAlpha&gt;();
+  if (name=="ts_onnx") return std::make_unique&lt;TSOnnxAlpha&gt;();</code>
+  <strong>Gate</strong>：<code>.so</code> 构建通过；<code>genaAC</code> 用 <code>ts_onnx</code> cfg 跑出 alpha。</li>
+<li><strong>P4 端到端 parity + strategy 联调（~1.5d）</strong>：加 C++ test harness 直接 <code>set values_</code> 再 <code>calculate_value</code>，对 P2 同一矩阵逐值比 <code>OnnxAlpha</code> vs <code>MLPAlpha</code>；复制 <code>HFTaking_sol_mlp120_return.json</code> 把 <code>name ts_mlp→ts_onnx</code>、<code>weights→onnx_path</code> 跑 strategy。<strong>Gate</strong>：与现状 <code>ts_mlp</code> 逐值对齐达标、strategy 零代码改动跑通。</li>
+<li><strong>P5 抽 hf-model 通用 package + 推广（~2-3d）</strong>：把"懂模型/会 ORT"部分收口成 <code>hf-model</code>（Python <code>export()/Predictor/schema</code>；C++ session 封装抽出，<code>crypto-ts-alpha</code> 只留薄壳继承注册）；<code>examples/train_and_export.py</code>。<strong>Gate</strong>：换个玩具结构走 <code>export()→bundle→ts_onnx</code>，C++ <strong>零改代码</strong> 跑通（证明架构无关）。</li>
+</ul>
+<h3 id="83-parity">8.3 parity 验证策略（头号风险）</h3>
+<ul>
+<li><strong>黄金基准 = 实盘在跑的 double C++ <code>MLPAlpha</code></strong>。三方：<code>onnx</code>(f32)↔<code>torch</code>(f32) 近 bit 级；f32↔double 差异来自 256 项累加，属预期。</li>
+<li><strong>NaN 语义坑（最易踩）</strong>：ONNX <code>IsNaN</code> <strong>不捕 ±inf</strong>，而 C++ 用 <code>!isfinite</code> 把 inf 也当缺失 → 图里须 <code>IsNaN(x) OR IsInf(x)</code>。必造"整列 NaN/inf"输入断言。</li>
+<li>喂法：同一矩阵喂各端（C++ 加直喂 harness），逐值 abs 比，不用时间戳 join。</li>
+</ul>
+<h3 id="84">8.4 关键决策</h3>
+<p><strong>已定</strong>：P0 不重建训练侧；精度默认 <strong>f32</strong>（需逐 bit 兼容旧 double 时先 f64 图离线锚定再切 f32）；<strong>预处理烤进图</strong>；C++ 输入 <strong>float32</strong>；onnxruntime 走 <strong>conancenter</strong>（内网不通则 vendored）；<strong>LGBM 维持原生 c_api</strong>。
+<strong>待你拍（不阻塞 P0-P4）</strong>：D1 消费端语言（默认 Py+C++）/ D2 抽象层级（默认止于深度模型）/ D4 <code>hf-model</code> 落点（默认内网）/ <strong>centers 用名义 bp 还是 return</strong>（须确认生产 cfg 实喂哪套，差 1e4 倍）。</p>
+<h3 id="85">8.5 风险与回退</h3>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>回退</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>onnxruntime 内网 remote 无</td>
+<td>vendored 微软官方预编译 <code>.so</code>+头文件</td>
+</tr>
+<tr>
+<td>f32 漂移改历史报告数</td>
+<td>基准重锚 torch-f32；或 f64 图逐 bit 兼容</td>
+</tr>
+<tr>
+<td><code>.so</code> 体积 +~10MB</td>
+<td><code>shared=True</code> 独立 .so，或 minimal build 压 2-4MB</td>
+</tr>
+<tr>
+<td>多输出子因子错位</td>
+<td>schema 四道校验（顺序/shape/Σ=input_dim/iw 填满）+ parity NaN 桶</td>
+</tr>
+<tr>
+<td>centers 尺度搞错</td>
+<td>输出整体差 1e4 倍，parity 立即暴露</td>
+</tr>
+</tbody>
+</table>
+<h3 id="86">8.6 里程碑</h3>
+<ul>
+<li><strong>P0-P2（Python 闭环）≈ 2d</strong> → 即可演示"onnx 与现状逐值对齐"，<strong>最小可验证"通不通"</strong>。</li>
+<li><strong>P3-P4（C++ 接入+端到端 parity）≈ 3d</strong>（含 conan 首次构建、harness）。</li>
+<li><strong>P5（抽通用 package+文档）≈ 2-3d</strong>。合计约 <strong>7-8 工作日</strong> 到可推广。</li>
+</ul>
+<h3 id="87">8.7 关键文件索引</h3>
+<ul>
+<li>C++ 接口/Factory：<code>crypto-def …/crypto/components/{alpha,interface,context,base}.h</code>；<code>crypto-ts-alpha/src/{Factory.cc,Factory.h,AllFactor.h}</code></li>
+<li>范本 alpha：<code>crypto-ts-alpha/src/{MLPAlpha.h,TSMLPAlpha.h,MagnitudeAlpha.h}</code></li>
+<li>strategy 消费：<code>crypto-ts-strategy/src/{HFTaking.cc:33-39,SignalExecution.cc:74,HFMaking.cc:30}</code>；cfg <code>crypto-ts-strategy/cfg/runner_cfg/HFTaking_sol_mlp120_return.json</code></li>
+<li>构建：<code>crypto-ts-alpha/{CMakeLists.txt,conanfile.txt}</code></li>
+<li><strong>训练侧（关键新发现）</strong>：<code>/home/samson/mlf-qyas-junjie/hf_crypto/sol_alpha/{mlp_strong_120.py,export_mlp_weights_120.py,validate_mlp_cpp.py,compare_cpp_py_120.py,data/features.py,output/mlp_strong_120/weights.json}</code></li>
+<li>真实特征契约：<code>crypto-ts-alpha/cfg/genaAC_sol_mlp120_val.json</code>（115 子因子→120 列）</li>
+</ul>
+    </article>
+  </section>
+  <section class="report" id="hfcrypto-onnx-demo">
+    <header class="report-header">
+      <div class="report-group-tag" style="color:#1a7f37">ONNX</div>
+      <h1>onnx V1 demo</h1>
+      <p class="subtitle">mlp_strong_120 接入 onnxalpha 完整操作步骤</p>
+    </header>
+    <article class="markdown-body">
+<h1 id="onnxalpha-demo-hfcrypto_onnx-mlp_strong_120">onnxalpha 接入 DEMO —— 从 hfcrypto_onnx 把 mlp_strong_120 接进来</h1>
+<blockquote>
+<p><strong>你来操作</strong>，每一步都有：① 做什么 ② 命令(可直接粘) ③ ✅ 期望看到什么。
+视角 = <strong>全新使用者</strong>：只把 <code>onnxalpha</code> 当一个 pip 装好的外部包用，不碰它的源码。
+目标 = 最后能成功：产出你自己的 <code>bundle</code> + 验证 <code>max|err|≈1e-10</code> + 跑通部署接入。</p>
+<p><strong>全程工作目录</strong> = <code>/home/samson/hfcrypto_onnx</code>（除非某步另说）。
+产物都放在新建的 <code>onnx_integration/</code> 下，<strong>不碰 crypto-ts-alpha / crypto-ts-strategy 一行</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="30">它们的关系（先看懂，30 秒）</h2>
+<ul>
+<li><code>onnxalpha</code>：一个<strong>包</strong>。功能 = 把模型权重 → 自包含 <code>bundle</code>（<code>model.onnx</code>+<code>schema.json</code>）；并能加载 bundle 做推理。</li>
+<li>你这个 repo：有训练好的 MLP 权重 <code>mlp_strong_120/weights.json</code> + 子因子顺序 cfg。</li>
+<li><strong>接入 = 用 onnxalpha 这个包，把你的权重导成 bundle。</strong> C++ 那边用全队共享的 <code>libonnxalpha.so</code>，你只产出 bundle。</li>
+</ul>
+<hr />
+<h2 id="step-0-onnxalpha">Step 0 — 建一个干净环境 + 装 onnxalpha</h2>
+<p><strong>做什么</strong>：建一个<strong>全新的</strong> Python 环境（不依赖任何现成 env），把 onnxalpha 当外部包装进去。
+它会自动从 PyPI 拉 numpy/onnx/onnxruntime/scipy。下面两种建环境方式，<strong>挑你机器上有的那个</strong>。</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008000">cd</span><span style="color: #bbbbbb"> </span>/home/samson/hfcrypto_onnx
+</code></pre></div>
+
+<p><strong>方式 A — 有 conda / micromamba（你终端 <code>(base)</code> 提示符就说明有）</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>conda<span style="color: #bbbbbb"> </span>create<span style="color: #bbbbbb"> </span>-y<span style="color: #bbbbbb"> </span>-n<span style="color: #bbbbbb"> </span>onnx_demo<span style="color: #bbbbbb"> </span><span style="color: #19177C">python</span><span style="color: #666666">=3</span>.10
+conda<span style="color: #bbbbbb"> </span>activate<span style="color: #bbbbbb"> </span>onnx_demo
+pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span>--upgrade<span style="color: #bbbbbb"> </span>pip
+pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;git+ssh://git@git.9th-tech.com/samson/onnx_junjie.git&quot;</span>
+</code></pre></div>
+
+<p><strong>方式 B — 只有系统 python3</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python3<span style="color: #bbbbbb"> </span>-m<span style="color: #bbbbbb"> </span>venv<span style="color: #bbbbbb"> </span>~/.venvs/onnx_demo
+<span style="color: #008000">source</span><span style="color: #bbbbbb"> </span>~/.venvs/onnx_demo/bin/activate
+pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span>--upgrade<span style="color: #bbbbbb"> </span>pip
+pip<span style="color: #bbbbbb"> </span>install<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;git+ssh://git@git.9th-tech.com/samson/onnx_junjie.git&quot;</span>
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：末尾 <code>Successfully installed onnxalpha-0.1.0 numpy-... onnxruntime-... ...</code>
+（onnxalpha 连同它的依赖一并装好）。</p>
+<blockquote>
+<p>之后每开新终端要用，先 <code>conda activate onnx_demo</code>（方式 A）或
+<code>source ~/.venvs/onnx_demo/bin/activate</code>（方式 B）激活这个环境。</p>
+</blockquote>
+<p><strong>验证装好了</strong>：</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python<span style="color: #bbbbbb"> </span>-c<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;import onnxalpha; print(&#39;onnxalpha at&#39;, onnxalpha.__file__)&quot;</span>
+onnxalpha<span style="color: #bbbbbb"> </span>info
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>包内自带 bundle(1 个):
+  - mlp_strong_120
+</code></pre></div>
+
+<blockquote>
+<p>🔁 <strong>内网版</strong>：内网若装不上 git（连不上 PyPI 拉依赖），改用离线 wheel：
+把 <code>onnx_junjie/third_party/wheels/</code> 拷到内网，<code>pip install --no-index --find-links wheels onnxalpha</code>。
+装完一样 <code>onnxalpha info</code> 能看到。</p>
+</blockquote>
+<hr />
+<h2 id="step-1">Step 1 — 建接入工作区 + 准备两个输入</h2>
+<p><strong>做什么</strong>：onnxalpha 导出需要两样东西：① 权重 json ② 子因子顺序 cfg（顶层是 <code>{ukey, alpha_names, alphas}</code>）。
+权重你 repo 里现成；子因子 cfg 你 repo 里<strong>嵌在</strong> <code>genaAC_sol_mlp120_val.json</code> 的 <code>alpha_cfg.ts_mlp</code> 下，抽出来即可。</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>mkdir<span style="color: #bbbbbb"> </span>-p<span style="color: #bbbbbb"> </span>onnx_integration/bundles
+
+<span style="color: #3D7B7B; font-style: italic"># ① 权重(现成,只是记下路径)</span>
+ls<span style="color: #bbbbbb"> </span>-l<span style="color: #bbbbbb"> </span>crypto-ts-alpha/models/mlp_strong_120/weights.json
+
+<span style="color: #3D7B7B; font-style: italic"># ② 抽出子因子 cfg → 存成 onnxalpha 要的顶层格式</span>
+python<span style="color: #bbbbbb"> </span>-c<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;import json; c=json.load(open(&#39;crypto-ts-alpha/cfg/genaAC_sol_mlp120_val.json&#39;)); json.dump(c[&#39;alpha_cfg&#39;][&#39;ts_mlp&#39;], open(&#39;onnx_integration/alpha_cfg_mlp_strong_120.json&#39;,&#39;w&#39;), indent=2); print(&#39;done&#39;)&quot;</span>
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：<code>done</code>，并生成 <code>onnx_integration/alpha_cfg_mlp_strong_120.json</code>。</p>
+<p><strong>验证抽对了</strong>：</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python<span style="color: #bbbbbb"> </span>-c<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;import json; a=json.load(open(&#39;onnx_integration/alpha_cfg_mlp_strong_120.json&#39;)); print(&#39;顶层键:&#39;, list(a.keys())); print(&#39;alpha_names 个数:&#39;, len(a[&#39;alpha_names&#39;]), &#39;| ukey:&#39;, a.get(&#39;ukey&#39;))&quot;</span>
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：<code>顶层键: ['ukey', 'alpha_names', 'alphas']</code>（或顺序略不同但含这三个），<code>alpha_names 个数: 115</code>，<code>ukey: 110200132</code>。</p>
+<blockquote>
+<p>📌 <strong>这就是新人会卡的那个点</strong>（已替你解决）：onnxalpha 要顶层就是 <code>{ukey,alpha_names,alphas}</code>；
+你 repo 把它包在 <code>alpha_cfg.ts_mlp</code> 里。上面那行 <code>json.dump</code> 就是把它"解包"出来。</p>
+</blockquote>
+<hr />
+<h2 id="step-2-bundle-onnxalpha">Step 2 — 导出你自己的 bundle（只用 onnxalpha 的命令行）</h2>
+<p><strong>做什么</strong>：用 onnxalpha 的 <code>export</code> 子命令，把权重 + 子因子 cfg → bundle。</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>onnxalpha<span style="color: #bbbbbb"> </span><span style="color: #008000">export</span><span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
+<span style="color: #bbbbbb">  </span>--weights<span style="color: #bbbbbb">   </span>crypto-ts-alpha/models/mlp_strong_120/weights.json<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
+<span style="color: #bbbbbb">  </span>--alpha-cfg<span style="color: #bbbbbb"> </span>onnx_integration/alpha_cfg_mlp_strong_120.json<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
+<span style="color: #bbbbbb">  </span>--out<span style="color: #bbbbbb">       </span>onnx_integration/bundles/mlp_strong_120<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
+<span style="color: #bbbbbb">  </span>--model-id<span style="color: #bbbbbb">  </span>mlp_strong_120
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：<code>已导出 bundle 到 onnx_integration/bundles/mlp_strong_120</code>。</p>
+<p><strong>验证 bundle</strong>：</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>ls<span style="color: #bbbbbb"> </span>-l<span style="color: #bbbbbb"> </span>onnx_integration/bundles/mlp_strong_120/<span style="color: #bbbbbb">          </span><span style="color: #3D7B7B; font-style: italic"># 应有 model.onnx + schema.json</span>
+onnxalpha<span style="color: #bbbbbb"> </span>info<span style="color: #bbbbbb"> </span>--bundle<span style="color: #bbbbbb"> </span>onnx_integration/bundles/mlp_strong_120
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：<code>输入维度 : 120</code>、<code>子因子数 : 115</code>、<code>输出单位 : return</code>、<code>分类数 : 7</code>。</p>
+<hr />
+<h2 id="step-3-bundle">Step 3 — 验证 bundle 推理正确（对包内黄金参考）</h2>
+<p><strong>做什么</strong>：用 onnxalpha 加载 bundle 推理，和它自带的 numpy 黄金参考逐值比，证明导出没出错（含 NaN/inf）。</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>cat<span style="color: #bbbbbb"> </span>&gt;<span style="color: #bbbbbb"> </span>onnx_integration/verify.py<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&lt;&lt;&#39;PY&#39;</span>
+<span style="color: #BA2121">import numpy as np</span>
+<span style="color: #BA2121">import onnxalpha as oa</span>
+<span style="color: #BA2121">from onnxalpha import load_weights, reference_forward</span>
+
+<span style="color: #BA2121">W = &quot;crypto-ts-alpha/models/mlp_strong_120/weights.json&quot;</span>
+<span style="color: #BA2121">B = &quot;onnx_integration/bundles/mlp_strong_120&quot;</span>
+
+<span style="color: #BA2121">w = load_weights(W)</span>
+<span style="color: #BA2121">p = oa.Predictor.load(B)</span>
+
+<span style="color: #BA2121">rng = np.random.RandomState(0)</span>
+<span style="color: #BA2121">X = rng.randn(256, 120).astype(np.float64)</span>
+<span style="color: #BA2121">X[1, 3:8] = np.nan      # NaN 行</span>
+<span style="color: #BA2121">X[2, 50]  = np.inf       # inf 行</span>
+
+<span style="color: #BA2121">got  = p.predict(X)               # onnxalpha 走 onnxruntime</span>
+<span style="color: #BA2121">gold = reference_forward(X, w)    # 包自带 numpy-double 黄金参考</span>
+<span style="color: #BA2121">err  = np.abs(got - gold).max()</span>
+<span style="color: #BA2121">pear = np.corrcoef(got, gold)[0, 1]</span>
+<span style="color: #BA2121">print(f&quot;max|err| = {err:.3e}   pearson = {pear:.6f}&quot;)</span>
+<span style="color: #BA2121">print(&quot;PASS&quot; if (err &lt; 1e-6 and pear &gt; 0.9999) else &quot;FAIL&quot;)</span>
+<span style="color: #BA2121">PY</span>
+python<span style="color: #bbbbbb"> </span>onnx_integration/verify.py
+</code></pre></div>
+
+<p>✅ <strong>期望看到</strong>：<code>max|err| = ~1e-7（在 1e-6 容差内）   pearson = 1.000000</code> + <code>PASS</code>。
+（已实测：本 repo 的 mlp_strong_120 跑出 <code>max|err| = 4.4e-7, pearson = 1.000000, PASS</code>。
+<code>1e-7</code> 量级是 f32 推理 vs f64 黄金参考的正常漂移，不是错误。）</p>
+<blockquote>
+<p>到这一步，<strong>你的模型已经成功"接入" onnxalpha 了</strong> —— 你有了一个自己导出、且验证正确的 bundle。</p>
+</blockquote>
+<hr />
+<h2 id="step-4-c-serving-so">Step 4 — 部署接入（C++ serving，复用全队共享 <code>.so</code>）</h2>
+<p><strong>关键心法</strong>：<code>.so</code>（<code>libonnxalpha.so</code> + <code>libonnxruntime.so.1.18.1</code>）是<strong>全队共享的同一份</strong>，已在共享路径。
+你这个项目<strong>只加一个 bundle</strong>，不编任何 C++。</p>
+<h3 id="4a-bundle">4a. 内网：把 bundle 放进共享路径</h3>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>cp<span style="color: #bbbbbb"> </span>-r<span style="color: #bbbbbb"> </span>onnx_integration/bundles/mlp_strong_120<span style="color: #bbbbbb"> </span><span style="color: #AA5D1F; font-weight: bold">\</span>
+<span style="color: #bbbbbb">      </span>/gpfs/hddfs/sgqr/shared/onnxalpha/bundles/
+ls<span style="color: #bbbbbb"> </span>/gpfs/hddfs/sgqr/shared/onnxalpha/bundles/<span style="color: #bbbbbb">        </span><span style="color: #3D7B7B; font-style: italic"># 应能看到 mlp_strong_120</span>
+</code></pre></div>
+
+<p>（<code>.so</code> 已经在 <code>/gpfs/hddfs/sgqr/shared/onnxalpha/lib/</code>，不用动。）</p>
+<h3 id="4b-cfg-runner-json-alpha">4b. cfg 指向（你的 runner 的 json 里，alpha 段）</h3>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008000; font-weight: bold">&quot;alpha-manager&quot;</span>:<span style="color: #bbbbbb"> </span>{<span style="color: #bbbbbb"> </span><span style="color: #008000; font-weight: bold">&quot;repo_path&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;/gpfs/hddfs/sgqr/shared/onnxalpha/lib&quot;</span><span style="color: #bbbbbb"> </span>},
+<span style="color: #008000; font-weight: bold">&quot;alpha&quot;</span>:<span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;repo&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;onnxalpha&quot;</span>,
+<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;name&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;ts_onnx&quot;</span>,
+<span style="color: #bbbbbb">  </span><span style="color: #008000; font-weight: bold">&quot;config&quot;</span>:<span style="color: #bbbbbb"> </span>{
+<span style="color: #bbbbbb">    </span><span style="color: #008000; font-weight: bold">&quot;ukey&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #666666">110200132</span>,
+<span style="color: #bbbbbb">    </span><span style="color: #008000; font-weight: bold">&quot;bundle&quot;</span>:<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;/gpfs/hddfs/sgqr/shared/onnxalpha/bundles/mlp_strong_120&quot;</span>
+<span style="color: #bbbbbb">  </span>}
+}
+</code></pre></div>
+
+<h3 id="4c-runnerld_library_path-lib">4c. 起 runner（LD_LIBRARY_PATH 含共享 lib）</h3>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008000">export</span><span style="color: #bbbbbb"> </span><span style="color: #19177C">LD_LIBRARY_PATH</span><span style="color: #666666">=</span><span style="color: #BA2121">&quot;/gpfs/hddfs/sgqr/shared/onnxalpha/lib:</span><span style="color: #19177C">$LD_LIBRARY_PATH</span><span style="color: #BA2121">&quot;</span>
+<span style="color: #3D7B7B; font-style: italic"># ./bin/runner ./config/你的_runner.json ...</span>
+</code></pre></div>
+
+<p>✅ <strong>期望</strong>：runner 加载 <code>ts_onnx</code> 成功、逐 bar 出 alpha（量级 ~1e-5 return）。</p>
+<blockquote>
+<p>🖥️ <strong>本地(qrdev)想先验一把 C++</strong>：<code>.so</code> 用 <code>/home/samson/onnx_junjie/deploy/serving_lib/</code>，
+<code>bundle</code> 用 <code>onnx_integration/bundles/mlp_strong_120</code>，<code>LD_LIBRARY_PATH</code> 指向那个 serving_lib 即可。</p>
+</blockquote>
+<hr />
+<h2 id="step-5">Step 5 — 收尾：留一份接入记录</h2>
+<p><strong>做什么</strong>：把你实跑的输出贴进一个日志，方便复现 / 给同事。</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>cat<span style="color: #bbbbbb"> </span>&gt;<span style="color: #bbbbbb"> </span>onnx_integration/接入记录.md<span style="color: #bbbbbb"> </span><span style="color: #BA2121">&lt;&lt;&#39;MD&#39;</span>
+<span style="color: #BA2121"># mlp_strong_120 接入 onnxalpha 记录</span>
+
+<span style="color: #BA2121">- 装包: pip install git+ssh://.../onnx_junjie.git  -&gt; onnxalpha 0.1.0</span>
+<span style="color: #BA2121">- 输入: crypto-ts-alpha/models/mlp_strong_120/weights.json</span>
+<span style="color: #BA2121">        + alpha_cfg(从 genaAC_sol_mlp120_val.json 的 alpha_cfg.ts_mlp 抽出)</span>
+<span style="color: #BA2121">- 导出: onnxalpha export ... -&gt; onnx_integration/bundles/mlp_strong_120</span>
+<span style="color: #BA2121">- 验证: max|err|=____  pearson=____  (粘 Step 3 实跑结果)</span>
+<span style="color: #BA2121">- 部署: bundle 拷进 /gpfs/hddfs/sgqr/shared/onnxalpha/bundles/ ; cfg 用 ts_onnx</span>
+<span style="color: #BA2121">MD</span>
+<span style="color: #008000">echo</span><span style="color: #bbbbbb"> </span><span style="color: #BA2121">&quot;记录已建,记得把 Step3 的真实数字填进 ____&quot;</span>
+</code></pre></div>
+
+<hr />
+<h2 id="_1">一页流程图（记住这个就够）</h2>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>你 repo 的 weights.json ─┐
+                         ├─ onnxalpha export ─→ bundle(model.onnx+schema.json)
+genaAC 抽出的 alpha_cfg ─┘                          │
+                                                    ├─ 本地: oa.Predictor 验证(Step3)
+                                                    └─ 内网: 拷进共享 bundles/ + cfg 指过去
+                                                            (.so 全队共享,不编 C++)
+</code></pre></div>
+
+<h2 id="_2">出错速查</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>解法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>onnxalpha: command not found</code></td>
+<td>没激活你建的环境；先 <code>conda activate onnx_demo</code>（或 <code>source ~/.venvs/onnx_demo/bin/activate</code>）再跑</td>
+</tr>
+<tr>
+<td>export 报 <code>KeyError: 'alpha_names'</code></td>
+<td>Step 1 的 cfg 没抽对；确认 <code>onnx_integration/alpha_cfg_mlp_strong_120.json</code> 顶层有 <code>alpha_names</code></td>
+</tr>
+<tr>
+<td>export 报维度断言失败</td>
+<td>weights 的 <code>n_features</code> 与子因子 Σshape 不一致；确认用的是 <code>mlp_strong_120</code> 那套权重+cfg</td>
+</tr>
+<tr>
+<td>Step3 <code>max|err|</code> 很大(&gt;1e-3)</td>
+<td>多半 alpha_cfg 顺序错了；确认抽的是 <code>alpha_cfg.ts_mlp</code>（不是别的模型段）</td>
+</tr>
+<tr>
+<td>内网 pip 装不上</td>
+<td>用 Step 0 的 🔁 离线 wheel 方式</td>
 </tr>
 </tbody>
 </table>

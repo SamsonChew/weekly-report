@@ -32,6 +32,7 @@ GROUPS = [
     {"id": "quantaalpha",  "label": "QuantaAlpha",         "color": "#b5690e"},
     {"id": "alphabank",    "label": "AlphaBank",           "color": "#116329"},
     {"id": "futures",      "label": "期货",                 "color": "#9a3412"},
+    {"id": "onnx",         "label": "ONNX",                "color": "#1a7f37"},
 ]
 
 REPORTS = [
@@ -63,20 +64,6 @@ REPORTS = [
         "title": "Week 4",
         "subtitle": "信号→C++→因子修复→run_sim 四阶段 · 单120MLP · 缺口在穿价",
         "file": HERE / "hfcrypto_week4.md",
-    },
-    {
-        "id": "hfcrypto-onnx",
-        "group": "hfcrypto-sol",
-        "title": "onnx design review",
-        "subtitle": "onnx_junjie 统一推理 package · 项目概览 · 可行性调研 · 实施计划",
-        "file": HERE / "hfcrypto_onnx.md",
-    },
-    {
-        "id": "hfcrypto-onnx-demo",
-        "group": "hfcrypto-sol",
-        "title": "onnx V1 demo",
-        "subtitle": "mlp_strong_120 接入 onnxalpha 完整操作步骤",
-        "file": HERE / "onnx_demo.md",
     },
     {
         "id": "hfcrypto-0614",
@@ -143,6 +130,21 @@ REPORTS = [
         "title": "Week 23",
         "subtitle": "BTC 1s HFT · Return口径/Bar因子/IC Sweep/Return结构分析",
         "file": HERE / "alphabank_week23.md",
+    },
+    # ── ONNX ──────────────────────────────────────────────────────────
+    {
+        "id": "hfcrypto-onnx",
+        "group": "onnx",
+        "title": "onnx design review",
+        "subtitle": "onnx_junjie 统一推理 package · 项目概览 · 可行性调研 · 实施计划",
+        "file": HERE / "hfcrypto_onnx.md",
+    },
+    {
+        "id": "hfcrypto-onnx-demo",
+        "group": "onnx",
+        "title": "onnx V1 demo",
+        "subtitle": "mlp_strong_120 接入 onnxalpha 完整操作步骤",
+        "file": HERE / "onnx_demo.md",
     },
     # ── 期货 ──────────────────────────────────────────────────────────
     {
