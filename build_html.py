@@ -72,6 +72,13 @@ REPORTS = [
         "file": HERE / "hfcrypto_onnx.md",
     },
     {
+        "id": "hfcrypto-onnx-demo",
+        "group": "hfcrypto-sol",
+        "title": "onnx V1 demo",
+        "subtitle": "mlp_strong_120 接入 onnxalpha 完整操作步骤",
+        "file": HERE / "onnx_demo.md",
+    },
+    {
         "id": "hfcrypto-0614",
         "group": "hfcrypto-sol",
         "title": "实盘 dry run 排查",
