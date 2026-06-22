@@ -10,6 +10,8 @@ import markdown
 HERE = Path(__file__).parent
 
 HOME_LINKS = [
+    {"title": "Samson Week 5 Summary",
+     "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/YR3Ew7WJei5O93kRvpaj2foWpxg"},
     {"title": "Samson Week 2 & 3 Summary",
      "url": "https://njp9rhghllrb.jp.larksuite.com/wiki/GeUswyjYLiqgEYkMZK1jiktfpQb?from=from_copylink"},
     {"title": "Samson Week 4 Summary",
