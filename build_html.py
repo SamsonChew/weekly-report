@@ -85,6 +85,13 @@ REPORTS = [
         "subtitle": "SOL 1s Taker Alpha · 零膨胀 + 大相对tick · 全模型形态汇总",
         "file": HERE / "hfcrypto_allmodel.md",
     },
+    {
+        "id": "hfcrypto-alpha-robust",
+        "group": "hfcrypto-sol",
+        "title": "Week 5 实盘模型迭代",
+        "subtitle": "冷启动鲁棒性 · 因子暖机 · Phase 4 六月冷接验证 · live 多日核心指标",
+        "file": HERE / "hfcrypto_alpha_robust.md",
+    },
     # ── DeepLOB / S&P 500 ─────────────────────────────────────────────
     {
         "id": "deeplob",
